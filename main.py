@@ -239,6 +239,7 @@ def velocityVerlet(timestep, molecules_coordinates, l_domain, forces, v_old, r_c
     :param r_cut: Cut-off distance for inter-molecular interactions [Angstroms]
     :return: New configuration coordinates, new velocity vectors and force-field of new configuration
     """
+    timestep = timestep * (1e-15)
     r_old = molecules_coordinates
 
     v_half_new = np.zeros((len(molecules_coordinates), 3))
@@ -276,6 +277,7 @@ def velocityVerletThermostat(timestep, T, Q, molecules_coordinates, l_domain, fo
     :param r_cut: Cut-off distance for inter-molecular interactions [Angstroms]
     :return: New configuration coordinates, new velocity vectors and force-field of new configuration
     '''
+    timestep = timestep * (1e-15)
     no_of_entities = molecules_coordinates.shape[0]
 
     r_old = molecules_coordinates
