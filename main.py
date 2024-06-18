@@ -171,10 +171,9 @@ def initVel(T, no_of_entities):
     v_random = np.random.uniform()
 
     v_temp = np.zeros(no_of_entities)
-    v_temp += np.sqrt(3 * co.R * T * no_of_entities * CH4_molar_mass)
-    v_lambda = v_temp / v_random
+    v_temp += np.sqrt(3 * co.R * T * no_of_entities * CH4_molar_mass) * (1e-5)
 
-    return v_temp, v_lambda
+    return v_temp
 
 
 # 2.1 and 2.2
