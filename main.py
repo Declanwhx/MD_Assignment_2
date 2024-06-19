@@ -169,13 +169,30 @@ def initVel(T, no_of_entities):
     """
     # Generate random velocity
     # Given in notes -> As a rule of thumb, a fast moving atm should move at most O(1%) of its diameter in a timestep
-    v_random = np.random.uniform(0, 0.0373, size=3)
+    v_magnitude_max = (1/100) * sigma # [Angstroms/fs]
+    v_direction_max = np.sqrt((1 / 3) * (v_magnitude_max ** 2))
 
-    v_temp = np.zeros(no_of_entities)
-    v_temp += (np.sqrt((3 * co.k * T)/CH4_molar_mass)) * (1e-5) # [Angstrom/fs]
-    v_lambda = v_temp / v_random
+    v = np.zeros((no_of_entities, 3))
+    for i in range(0, no_of_entities):
+        v[i] = np.random.uniform(-v_direction_max, v_direction_max, size=3)
+    
+    #print(v)
+    v2 = np.sum(v ** 2, axis = 1 )
+    # print(v2)
+    v2_average = np.average(v2)
+    # print(v2_average)
 
-    return v_temp, v_lambda
+    # System temperature with randomized velocities
+    # CHECK UNITS HERE -> should be correct now but just in case
+    T_init = (CH4_molecule_mass * v2_average * (1e10)) / (dof * co.k)
+    #print(T_init)
+
+    scale_factor = T / T_init
+    #print(scale_factor)
+    v = np.sqrt(scale_factor) * v
+    print(v)
+
+    return v
 
 
 # 2.1 and 2.2
