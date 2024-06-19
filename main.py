@@ -165,7 +165,7 @@ def initVel(T, no_of_entities):
 
     :param T: System temperature [K]
     :param no_of_entities: Number of molecules in the system [-]
-    :return: Vector of molecules velocities and scaling factor
+    :return: Vector of molecules velocities
     """
     # Generate random velocity
     # Given in notes -> As a rule of thumb, a fast moving atm should move at most O(1%) of its diameter in a timestep
@@ -190,7 +190,7 @@ def initVel(T, no_of_entities):
     scale_factor = T / T_init
     #print(scale_factor)
     v = np.sqrt(scale_factor) * v
-    print(v)
+    # print(v)
 
     return v
 
@@ -258,7 +258,6 @@ def velocityVerlet(timestep, molecules_coordinates, l_domain, forces, v_old, r_c
     :param r_cut: Cut-off distance for inter-molecular interactions [Angstroms]
     :return: New configuration coordinates, new velocity vectors and force-field of new configuration
     """
-    # timestep = timestep * (1e-15) INITIALLY CONVERTED FS TO S BUT THIS IS WRONG, JUST KEEPING IT HERE FOR NOW IN CASE I'M WRONG AGAIN
     r_old = molecules_coordinates
 
     v_half_new = np.zeros((len(molecules_coordinates), 3))
@@ -266,16 +265,16 @@ def velocityVerlet(timestep, molecules_coordinates, l_domain, forces, v_old, r_c
     r_new = np.zeros((len(molecules_coordinates), 3))
 
     for i in range(0, len(molecules_coordinates)):
-        r_new[i] = r_old[i] + (v_old[i] * timestep) + (1 / CH4_molecule_mass) * forces[i] * (timestep ** 2)
+        r_new[i] = r_old[i] + (v_old[i] * timestep) + (forces[i] / CH4_molecule_mass) * (1e-10) * (timestep ** 2)
         # Bring back coordinates from ghost cells
         r_new[i] = np.where(r_new[i] > + l_domain / 2, r_new[i] - l_domain, r_new[i])
         r_new[i] = np.where(r_new[i] < - l_domain / 2, r_new[i] + l_domain, r_new[i])
-        v_half_new[i] = v_old[i] + (forces[i] / (2 * CH4_molecule_mass)) * timestep
+        v_half_new[i] = v_old[i] + (forces[i] / (2 * CH4_molecule_mass)) * (1e-10) * timestep
 
-    forces = np.round(LJ_forces(r_new, l_domain, r_cut), 3)
+    forces = LJ_forces(r_new, l_domain, r_cut)
 
     for i in range(0, len(molecules_coordinates)):
-        v_new[i] = v_half_new[i] + (forces[i] / (2 * CH4_molecule_mass)) * timestep
+        v_new[i] = v_half_new[i] + (forces[i] / (2 * CH4_molecule_mass)) * (1e-10) * timestep
         v_new[i] = np.round(v_new[i], 6)
 
     return r_new, v_new, forces
@@ -295,7 +294,6 @@ def velocityVerletThermostat(timestep, T, Q, molecules_coordinates, l_domain, fo
     :param r_cut: Cut-off distance for inter-molecular interactions [Angstroms]
     :return: New configuration coordinates, new velocity vectors and force-field of new configuration
     '''
-    # timestep = timestep * (1e-15) 
     no_of_entities = molecules_coordinates.shape[0]
 
     r_old = molecules_coordinates
@@ -401,6 +399,7 @@ def temperature(particle_velocities):
     :return: System temperature [K]
     """
     v2 = particle_velocities ** 2
+    #CHECK UNITS -> THIS NEEDS CHANGING(not for you Jelle, this is just for me to track)
     average_Kinetic = 0.5 * CH4_molecule_mass * np.average(v2)
 
     T = average_Kinetic / (dof * co.k) # [K]
@@ -445,6 +444,7 @@ def pressure(T, molecules_coordinates, l_domain, r_cut=14):
         dU_dr += np.sum(sr6 - 2 * sr12)
 
     dU_dr = 24 * epslj * dU_dr
+    #CHECK UNITS (not for you Jelle, this is just for me to track)
     P_tot = (molecule_density * k_B * T - (1 / (3 * domain_volume)) * dU_dr) * 1e30  # [Pa]
     # print(P_tot)
 
@@ -586,7 +586,7 @@ def MD_CYCLE(simulation_time, timestep, T, mass_density, l_domain, r_cut):
     # Initializing force
     forces = LJ_forces(molecules_coordinates, l_domain, r_cut)
     # Initializing velocity
-    v_old = initVel(T, molecules_coordinates.shape[0])[0]
+    v_old = initVel(T, molecules_coordinates.shape[0])
 
     for i in range(0, simulation_time, timestep):
         molecules_coordinates, v_old, forces = velocityVerlet(timestep, molecules_coordinates, l_domain, forces, v_old,
