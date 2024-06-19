@@ -158,7 +158,7 @@ def initGrid(l_domain, mass_density):
     return molecules_coordinates + spac / 2 - l_domain / 2, l_domain
 
 
-# 1.2
+# 1.2 CURRENTLY I AM RELOOKING AT THIS.
 def initVel(T, no_of_entities):
     """
     Function to initialize temperature
@@ -168,12 +168,14 @@ def initVel(T, no_of_entities):
     :return: Vector of molecules velocities and scaling factor
     """
     # Generate random velocity
-    v_random = np.random.uniform()
+    # Given in notes -> As a rule of thumb, a fast moving atm should move at most O(1%) of its diameter in a timestep
+    v_random = np.random.uniform(0, 0.0373, size=3)
 
     v_temp = np.zeros(no_of_entities)
-    v_temp += np.sqrt(3 * co.R * T * no_of_entities * CH4_molar_mass) * (1e-5)
+    v_temp += (np.sqrt((3 * co.k * T)/CH4_molar_mass)) * (1e-5) # [Angstrom/fs]
+    v_lambda = v_temp / v_random
 
-    return v_temp
+    return v_temp, v_lambda
 
 
 # 2.1 and 2.2
@@ -184,7 +186,7 @@ def LJ_forces(molecules_coordinates, l_domain, r_cut=14):
     :param molecules_coordinates: Array containing cartesian coordinates of each molecule [Angstroms]
     :param l_domain: Length of box domain sides [Angstroms]
     :param r_cut: Cut-off distance for inter-molecular interactions [Angstroms]
-    :return: Forces [N/Angstrom]
+    :return: Forces [N/Angstrom] -> Equivalent of J/m which is N
     """
     no_of_entities = molecules_coordinates.shape[0]
     # print(no_of_entities)
@@ -220,7 +222,7 @@ def LJ_forces(molecules_coordinates, l_domain, r_cut=14):
         dU_dr = d * dU_dr[:, np.newaxis]
         # print(dU_dr)
         # Summation of all pair forces and storing the force vectors into a 2D array
-        forces[i] = np.sum(dU_dr, axis=0)
+        forces[i] = np.sum(dU_dr, axis=0) # [J/Angstrom]
         # print(forces[i])
 
     return forces
@@ -239,7 +241,7 @@ def velocityVerlet(timestep, molecules_coordinates, l_domain, forces, v_old, r_c
     :param r_cut: Cut-off distance for inter-molecular interactions [Angstroms]
     :return: New configuration coordinates, new velocity vectors and force-field of new configuration
     """
-    timestep = timestep * (1e-15)
+    # timestep = timestep * (1e-15) INITIALLY CONVERTED FS TO S BUT THIS IS WRONG, JUST KEEPING IT HERE FOR NOW IN CASE I'M WRONG AGAIN
     r_old = molecules_coordinates
 
     v_half_new = np.zeros((len(molecules_coordinates), 3))
@@ -276,7 +278,7 @@ def velocityVerletThermostat(timestep, T, Q, molecules_coordinates, l_domain, fo
     :param r_cut: Cut-off distance for inter-molecular interactions [Angstroms]
     :return: New configuration coordinates, new velocity vectors and force-field of new configuration
     '''
-    timestep = timestep * (1e-15)
+    # timestep = timestep * (1e-15) 
     no_of_entities = molecules_coordinates.shape[0]
 
     r_old = molecules_coordinates
