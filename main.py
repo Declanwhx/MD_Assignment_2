@@ -12,8 +12,8 @@ epslj = 148 * co.k  # [J]
 sigma = 3.73  # [Angstroms]
 sigma_sq = sigma ** 2  # [Angstroms^2]
 sigma_cu = sigma ** 3  # [Angstroms^3]
-CH4_molar_mass = 16.04 * (10 ** -3) # [kg/mol]
-CH4_molecule_mass = CH4_molar_mass / co.N_A # [kg]
+CH4_molar_mass = 16.04 # [g/mol]
+CH4_molecule_mass = CH4_molar_mass / co.N_A # [g]
 # Degrees of freedom
 dof = 3  # [-]
 
@@ -184,7 +184,7 @@ def initVel(T, no_of_entities):
 
     # System temperature with randomized velocities
     # CHECK UNITS HERE -> should be correct now but just in case
-    T_init = (16.04 * v2_average * 1e4) / (dof * co.R * 1e-3)
+    T_init = (CH4_molar_mass * v2_average * 1e4) / (dof * co.R * 1e-3)
     #print(T_init)
 
     scale_factor = T / T_init
@@ -270,19 +270,19 @@ def velocityVerlet(timestep, molecules_coordinates, l_domain, forces, v_old, r_c
     r_new = np.zeros((len(molecules_coordinates), 3))
 
     for i in range(0, len(molecules_coordinates)):
-        r_new[i] = r_old[i] + (v_old[i] * timestep) + (forces[i] / CH4_molecule_mass) * (1e2) * (timestep ** 2)
+        r_new[i] = r_old[i] + (v_old[i] * timestep) + (forces[i] / CH4_molecule_mass) * 1e-4 * (timestep ** 2)
         # Bring back coordinates from ghost cells
         r_new[i] = np.where(r_new[i] > + l_domain / 2, r_new[i] - l_domain, r_new[i])
         r_new[i] = np.where(r_new[i] < - l_domain / 2, r_new[i] + l_domain, r_new[i])
-        v_half_new[i] = v_old[i] + (forces[i] / (2 * CH4_molecule_mass)) * (1e2) * timestep
+        v_half_new[i] = v_old[i] + (forces[i] / (2 * CH4_molecule_mass)) * 1e-4 * timestep
 
-    forces = LJ_forces(r_new, l_domain, r_cut)
+    forces_new = LJ_forces(r_new, l_domain, r_cut)
 
     for i in range(0, len(molecules_coordinates)):
-        v_new[i] = v_half_new[i] + (forces[i] / (2 * CH4_molecule_mass)) * (1e2) * timestep
+        v_new[i] = v_half_new[i] + (forces_new[i] / (2 * CH4_molecule_mass)) * 1e-4 * timestep
         v_new[i] = np.round(v_new[i], 6)
 
-    return r_new, v_new, forces
+    return r_new, v_new, forces_new
 
 
 # 6
