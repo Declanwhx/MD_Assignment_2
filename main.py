@@ -265,16 +265,16 @@ def velocityVerlet(timestep, molecules_coordinates, l_domain, forces, v_old, r_c
     r_new = np.zeros((len(molecules_coordinates), 3))
 
     for i in range(0, len(molecules_coordinates)):
-        r_new[i] = r_old[i] + (v_old[i] * timestep) + (forces[i] / CH4_molecule_mass) * (1e-10) * (timestep ** 2)
+        r_new[i] = r_old[i] + (v_old[i] * timestep) + (forces[i] / CH4_molecule_mass) * (1e10) * (timestep ** 2)
         # Bring back coordinates from ghost cells
         r_new[i] = np.where(r_new[i] > + l_domain / 2, r_new[i] - l_domain, r_new[i])
         r_new[i] = np.where(r_new[i] < - l_domain / 2, r_new[i] + l_domain, r_new[i])
-        v_half_new[i] = v_old[i] + (forces[i] / (2 * CH4_molecule_mass)) * (1e-10) * timestep
+        v_half_new[i] = v_old[i] + (forces[i] / (2 * CH4_molecule_mass)) * (1e10) * timestep
 
     forces = LJ_forces(r_new, l_domain, r_cut)
 
     for i in range(0, len(molecules_coordinates)):
-        v_new[i] = v_half_new[i] + (forces[i] / (2 * CH4_molecule_mass)) * (1e-10) * timestep
+        v_new[i] = v_half_new[i] + (forces[i] / (2 * CH4_molecule_mass)) * (1e10) * timestep
         v_new[i] = np.round(v_new[i], 6)
 
     return r_new, v_new, forces
@@ -580,22 +580,31 @@ def MD_CYCLE(simulation_time, timestep, T, mass_density, l_domain, r_cut):
     :param r_cut: Cut-off distance for inter-molecular interactions [Angstroms]
     :return:
     """
-    molecules_coordinates, L = initGrid(l_domain, mass_density)
-
+    steps = simulation_time / timestep
     sample_frequency = 100
-    # Initializing force
-    forces = LJ_forces(molecules_coordinates, l_domain, r_cut)
-    # Initializing velocity
-    v_old = initVel(T, molecules_coordinates.shape[0])
+    sample_interval = steps / sample_frequency
 
-    for i in range(0, simulation_time, timestep):
-        molecules_coordinates, v_old, forces = velocityVerlet(timestep, molecules_coordinates, l_domain, forces, v_old,
-                                                              r_cut)
-        if (i + 1) % sample_frequency == 0:
-            write_frame(molecules_coordinates, np.array([l_domain, l_domain, l_domain]), v_old, forces, 'lammps.data',
+    # Initializing domain
+    r_old, L = initGrid(l_domain, mass_density)
+    # Initializing velocity
+    v_old = initVel(T, r_old.shape[0])
+    # Initializing force
+    force_old = LJ_forces(r_old, l_domain, r_cut)
+
+    for i in range(0, simulation_time):
+        r_new, v_new, force_new = velocityVerlet(timestep, r_old, l_domain, force_old, v_old, r_cut)
+
+        r_old = r_new
+        v_old = v_new
+        force_old = force_new
+
+        # print(coordinates_old)
+        if (i + 1) % sample_interval == 0:
+            write_frame(r_new, l_domain, v_new, force_new, 'Declan_trj.lammps',
                         (i + 1) * timestep)
 
     return
+
 
 
 """coordinates_1, l_domain_1 = initGrid(30, 0.5 * 358.4)
@@ -615,7 +624,7 @@ plt.xlabel("r [A]")
 plt.savefig('rdf.png')
 plt.show()"""
 
-# MD_CYCLE(3000, 1, 150, 358.4, 30, 14)
+MD_CYCLE(3000, 1, 150, 358.4, 30, 14)
 """xyz, vel, L = read_lammps_data('lammps.data')
 print(xyz)
 print(vel)
