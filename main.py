@@ -204,7 +204,7 @@ def LJ_forces(molecules_coordinates, l_domain, r_cut):
     :return: Forces [J/Angstrom] -> Equivalent of J/m which is N
     """
     no_of_entities = molecules_coordinates.shape[0]
-    print(no_of_entities)
+    # print(no_of_entities)
 
     forces = np.zeros((no_of_entities, 3))
     np.set_printoptions(formatter={'float': lambda x: format(x, '1.5E')})
@@ -271,22 +271,22 @@ def velocityVerlet(timestep, molecules_coordinates, l_domain, forces, v_old, r_c
     r_new = np.zeros((len(molecules_coordinates), 3))
 
     for i in range(0, len(molecules_coordinates)):
-        r_new[i] = r_old[i] + (v_old[i] * timestep) + (forces[i] / CH4_molecule_mass) * (10 ** -7) * (timestep ** 2)
+        r_new[i] = r_old[i] + (v_old[i] * timestep) + (forces[i] / CH4_molecule_mass) * 1e-7 * (timestep ** 2)
         # Bring back coordinates from ghost cells
         r_new[i] = np.where(r_new[i] > + l_domain / 2, r_new[i] - l_domain, r_new[i])
         r_new[i] = np.where(r_new[i] < - l_domain / 2, r_new[i] + l_domain, r_new[i])
-        v_half_new[i] = v_old[i] + (forces[i] / (2 * CH4_molecule_mass)) * (10 ** -7) * timestep
+        v_half_new[i] = v_old[i] + (forces[i] / (2 * CH4_molecule_mass)) * 1e-7 * timestep
 
     forces_new = LJ_forces(r_new, l_domain, r_cut)
 
     for i in range(0, len(molecules_coordinates)):
-        v_new[i] = v_half_new[i] + (forces[i] / (2 * CH4_molecule_mass)) * (10 ** -7) * timestep
+        v_new[i] = v_half_new[i] + (forces[i] / (2 * CH4_molecule_mass)) * 1e-7 * timestep
         # v_new[i] = np.round(v_new[i], 6)
 
     return r_new, v_new, forces_new
 
 
-# 6
+# 6 
 def velocityVerletThermostat(timestep, T, Q, molecules_coordinates, l_domain, forces, v_old, r_cut):
     '''
 
@@ -317,14 +317,14 @@ def velocityVerletThermostat(timestep, T, Q, molecules_coordinates, l_domain, fo
     for i in range(0, len(molecules_coordinates)):
         # Calculate coordinates for new configuration r(t+delta t)
         r_new[i] = r_old[i] + (v_old[i] * timestep) + ((timestep ** 2) / 2) * (
-                (forces[i] / CH4_molecule_mass) * 1e10 - (zeta_old[i]) * v_old[i])
+                (forces[i] / CH4_molecule_mass) * 1e-7 - (zeta_old[i]) * v_old[i])
         # Bring back coordinates from ghost cells
         r_new[i] = np.where(r_new[i] >= + l_domain / 2, r_new[i] - l_domain, r_new[i])
         r_new[i] = np.where(r_new[i] <= - l_domain / 2, r_new[i] + l_domain, r_new[i])
 
         zeta_half_new[i] = zeta_old[i] + (timestep / (2 * Q)) * (U_kin - 1.5 * co.k * T)
         v_half_new[i] = v_old[i] + (timestep / 2) * (
-                    (forces[i] / CH4_molecule_mass) * 1e10 - zeta_half_new[i] * v_old[i])
+                    (forces[i] / CH4_molecule_mass) * 1e-7 - zeta_half_new[i] * v_old[i])
 
     # Calculate forces for new configuration r(t+delta t)
     forces = LJ_forces(r_new, l_domain, r_cut)
@@ -591,16 +591,14 @@ def MD_CYCLE(simulation_time, timestep, L, coordinates, force, velocity, r_cut):
     for i in range(0, simulation_time):
         r_new, v_new, force_new = velocityVerlet(timestep, r_old, L, force_old, v_old, r_cut)
         print(i)
-        print(r_new)
 
         if (i + 1) % sample_interval == 0:
             write_frame(r_new, L, v_new, force_new, 'Declan_trj.lammps', (i + 1) * timestep)
+            # NOT WRITING FORCE FOR SOME REASON BUT IF WE PRINT FORCE, THERE ARE NUMBERS
 
         r_old = r_new
         v_old = v_new
         force_old = force_new
-    return
-
 
 """coordinates_1, l_domain_1 = initGrid(30, 0.5 * 358.4)
 coordinates_2, l_domain_2 = initGrid(30,358.4)
@@ -620,24 +618,17 @@ plt.savefig('rdf.png')
 plt.show()"""
 
 # Initializing domain
-coord_array, no_of_molecules = initGrid(30, 358.4)
+l_domain = 30
+coord_array, no_of_molecules = initGrid(l_domain, 358.4)
 # Initializing velocity
 v_array = initVel(150, no_of_molecules)
 # Initializing force
-force_array = LJ_forces(coord_array, 30, 14)
+force_array = LJ_forces(coord_array, l_domain, 14)
 
-MD_CYCLE(3000, 1, 30, coord_array, force_array, v_array, 14)
+MD_CYCLE(3000, 1, l_domain, coord_array, force_array, v_array, 14)
 xyz, vel, F = read_lammps_trj('Declan_trj.lammps')
 # xyz, vel, forces = read_lammps_trj('trj.lammps')
 print(xyz)
 print(vel)
 print(F)
 
-
-"""a = np.arange(5)
-b = [[15,1,5],[63,1,46],[75,26,15],[154,15,12],[512,56,23]]
-b = np.array(b)
-c = b * a[:, np.newaxis]
-print(c)
-c = np.sum(c, axis=0)
-print(c)"""
