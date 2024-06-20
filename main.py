@@ -270,16 +270,16 @@ def velocityVerlet(timestep, molecules_coordinates, l_domain, forces, v_old, r_c
     r_new = np.zeros((len(molecules_coordinates), 3))
 
     for i in range(0, len(molecules_coordinates)):
-        r_new[i] = r_old[i] + (v_old[i] * timestep) + (forces[i] / CH4_molecule_mass) * 1e-1 * (timestep ** 2)
+        r_new[i] = r_old[i] + (v_old[i] * timestep) + (forces[i] / CH4_molecule_mass) * 1e-7 * (timestep ** 2)
         # Bring back coordinates from ghost cells
         r_new[i] = np.where(r_new[i] > + l_domain / 2, r_new[i] - l_domain, r_new[i])
         r_new[i] = np.where(r_new[i] < - l_domain / 2, r_new[i] + l_domain, r_new[i])
-        v_half_new[i] = v_old[i] + (forces[i] / (2 * CH4_molecule_mass)) * 1e-1 * timestep
+        v_half_new[i] = v_old[i] + (forces[i] / (2 * CH4_molecule_mass)) * 1e-7 * timestep
 
     forces_new = LJ_forces(r_new, l_domain, r_cut)
 
     for i in range(0, len(molecules_coordinates)):
-        v_new[i] = v_half_new[i] + (forces_new[i] / (2 * CH4_molecule_mass)) * 1e-1 * timestep
+        v_new[i] = v_half_new[i] + (forces_new[i] / (2 * CH4_molecule_mass)) * 1e-7 * timestep
         v_new[i] = np.round(v_new[i], 6)
 
     return r_new, v_new, forces_new
