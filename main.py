@@ -184,7 +184,7 @@ def initVel(T, no_of_entities):
 
     # System temperature with randomized velocities
     # CHECK UNITS HERE -> should be correct now but just in case
-    T_init = (CH4_molecule_mass * v2_average * (1e10)) / (dof * co.k)
+    T_init = (CH4_molecule_mass * v2_average * (1e-10)) / (dof * co.k)
     #print(T_init)
 
     scale_factor = T / T_init
