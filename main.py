@@ -22,6 +22,7 @@ ndim = 3  # [-]
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 # # # # # # # # # # # # # # # FUNCTIONS # # # # # # # # # # # # # # #
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
+
 def convertMassDensity(mass_density):
     """
     Function that takes in the mass density and converts it to molecule density
@@ -631,3 +632,12 @@ xyz, vel, F = read_lammps_trj('Declan_trj.lammps')
 print(xyz)
 print(vel)
 print(F)
+
+
+"""a = np.arange(5)
+b = [[15,1,5],[63,1,46],[75,26,15],[154,15,12],[512,56,23]]
+b = np.array(b)
+c = b * a[:, np.newaxis]
+print(c)
+c = np.sum(c, axis=0)
+print(c)"""
