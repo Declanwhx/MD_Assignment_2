@@ -3,6 +3,7 @@ import time
 import matplotlib.pyplot as plt
 import scipy.constants as co
 import re
+from mpl_toolkits.mplot3d import Axes3D
 
 ######################### CONSTANTS #########################
 # Boltzmann Constant
@@ -12,16 +13,15 @@ epslj = 148 * co.k  # [J]
 sigma = 3.73  # [Angstroms]
 sigma_sq = sigma ** 2  # [Angstroms^2]
 sigma_cu = sigma ** 3  # [Angstroms^3]
-CH4_molar_mass = 16.04 # [g/mol]
-CH4_molecule_mass = CH4_molar_mass / co.N_A # [g]
+CH4_molar_mass = 16.04  # [g/mol]
+CH4_molecule_mass = CH4_molar_mass * (1 / co.N_A)  # [g]
 # Degrees of freedom
-dof = 3  # [-]
+ndim = 3  # [-]
 
 
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 # # # # # # # # # # # # # # # FUNCTIONS # # # # # # # # # # # # # # #
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
-
 def convertMassDensity(mass_density):
     """
     Function that takes in the mass density and converts it to molecule density
@@ -29,7 +29,7 @@ def convertMassDensity(mass_density):
     :param mass_density: Mass density of system [kg/m^3]
     :return: Molecule density [1/Angstrom^3]
     """
-    molecule_density = ((mass_density / (CH4_molar_mass * 1e-3)) * co.N_A) / (1e30)
+    molecule_density = ((mass_density / (CH4_molar_mass * 1e-3)) * co.N_A) / (10 ** 30)
     return molecule_density
 
 
@@ -165,30 +165,27 @@ def initVel(T, no_of_entities):
 
     :param T: System temperature [K]
     :param no_of_entities: Number of molecules in the system [-]
-    :return: Vector of molecules velocities
+    :return: Vector of molecules velocities and scaling factor
     """
     # Generate random velocity
     # Given in notes -> As a rule of thumb, a fast moving atm should move at most O(1%) of its diameter in a timestep
-    v_magnitude_max = (1/100) * sigma # [Angstroms/fs]
+    v_magnitude_max = (1 / 100) * sigma  # [Angstroms/fs]
     v_direction_max = np.sqrt((1 / 3) * (v_magnitude_max ** 2))
 
     v = np.zeros((no_of_entities, 3))
     for i in range(0, no_of_entities):
         v[i] = np.random.uniform(-v_direction_max, v_direction_max, size=3)
-    
-    #print(v)
-    v2 = np.sum(v ** 2, axis = 1 )
-    # print(v2)
+    v2 = np.sum(v ** 2, axis=1)
+    # NOTE: We will not average across the 0.5 and mass pre-factors since they are taken as constants
     v2_average = np.average(v2)
-    # print(v2_average)
 
     # System temperature with randomized velocities
-    # CHECK UNITS HERE -> should be correct now but just in case
-    T_init = (CH4_molar_mass * v2_average * 1e4) / (dof * co.R * 1e-3)
-    #print(T_init)
+    # T_init = (CH4_molecule_mass * v2_average * 1e10) / (ndim * co.k)
+    T_init = (CH4_molar_mass * v2_average * 1e4) / (ndim * co.R * 1e-3)
+    # print(T_init)
 
     scale_factor = T / T_init
-    #print(scale_factor)
+    # print(scale_factor)
     v = np.sqrt(scale_factor) * v
     # print(v)
 
@@ -196,25 +193,26 @@ def initVel(T, no_of_entities):
 
 
 # 2.1 and 2.2
-def LJ_forces(molecules_coordinates, l_domain, r_cut=14):
+def LJ_forces(molecules_coordinates, l_domain, r_cut):
     """
     Function to calculate inter-molecular forces for each configuration
 
     :param molecules_coordinates: Array containing cartesian coordinates of each molecule [Angstroms]
     :param l_domain: Length of box domain sides [Angstroms]
     :param r_cut: Cut-off distance for inter-molecular interactions [Angstroms]
-    :return: Forces [N/Angstrom] -> Equivalent of J/m which is N
+    :return: Forces [J/Angstrom] -> Equivalent of J/m which is N
     """
     no_of_entities = molecules_coordinates.shape[0]
-    # print(no_of_entities)
+    print(no_of_entities)
 
     forces = np.zeros((no_of_entities, 3))
+    np.set_printoptions(formatter={'float': lambda x: format(x, '1.5E')})
 
     for (i, coordinates_i) in enumerate(molecules_coordinates):
         # list containing Δx, Δy, Δz for each pair
         # CHECK THIS -> shouldn't be wrong if you offset this back to a left corner based domain
         # Shape -> (N, 3)
-        d = (molecules_coordinates - coordinates_i + l_domain / 2) % l_domain - l_domain / 2
+        d = (molecules_coordinates - molecules_coordinates[i] + l_domain / 2) % l_domain - l_domain / 2
         # print(d)
         # Add arbitrary large number so that r_ij_sq for the self-interaction goes beyond cut-off
         d[i] += 20
@@ -222,7 +220,7 @@ def LJ_forces(molecules_coordinates, l_domain, r_cut=14):
         # Shape -> (N)
         r_ij_sq = np.sum(d * d, axis=1)
         # Removes overlaps and replaces with infinitesimally small distance to result in large forces that repel away
-        r_ij_sq = np.where(r_ij_sq == 0 , 0.01, r_ij_sq)
+        r_ij_sq = np.where(r_ij_sq == 0, 0.01, r_ij_sq)
         # print(r_ij_sq)
 
         # NOTE: WE SHALL NOT COMPUTE V_IJ BECAUSE IT WOULD BE COMPUTATIONALLY MORE EXPENSIVE TO PERFORM THE SQRT
@@ -234,19 +232,20 @@ def LJ_forces(molecules_coordinates, l_domain, r_cut=14):
 
         # Filter out all r2 larger than rcut squared and get sigma^2/r^2 for all particles j>i. Necessary to set value
         # as 0 if rejected to maintain size of array
+        # Shape -> (N, 3)
         sr2 = np.where(r_ij_sq <= r_cut ** 2, sigma_sq / r_ij_sq, 0)
-        sr6 = (sr2 ** 3) / r_ij_sq
-        sr12 = (sr6 ** 2) / r_ij_sq
+        sr6 = sr2 ** 3
+        sr12 = sr6 ** 2
 
         # Force magnitude
         # Unit vectors are ji not ij so the signs are reversed which is why no -ve is in front
         dU_dr = ((24 * epslj) / r_ij_sq) * (2 * sr12 - sr6)
         # Vectorize dU_dr
         F = - d * dU_dr[:, np.newaxis]
-        # print(dU_dr)
         # Summation of all pair forces and storing the force vectors into a 2D array
         forces[i] = np.sum(F, axis=0)  # [J/Angstrom]
-        # print(forces[i])
+
+    # print(forces)
 
     return forces
 
@@ -271,17 +270,17 @@ def velocityVerlet(timestep, molecules_coordinates, l_domain, forces, v_old, r_c
     r_new = np.zeros((len(molecules_coordinates), 3))
 
     for i in range(0, len(molecules_coordinates)):
-        r_new[i] = r_old[i] + (v_old[i] * timestep) + (forces[i] / CH4_molecule_mass) * 1e-7 * (timestep ** 2)
+        r_new[i] = r_old[i] + (v_old[i] * timestep) + (forces[i] / CH4_molecule_mass) * (10 ** -7) * (timestep ** 2)
         # Bring back coordinates from ghost cells
         r_new[i] = np.where(r_new[i] > + l_domain / 2, r_new[i] - l_domain, r_new[i])
         r_new[i] = np.where(r_new[i] < - l_domain / 2, r_new[i] + l_domain, r_new[i])
-        v_half_new[i] = v_old[i] + (forces[i] / (2 * CH4_molecule_mass)) * 1e-7 * timestep
+        v_half_new[i] = v_old[i] + (forces[i] / (2 * CH4_molecule_mass)) * (10 ** -7) * timestep
 
     forces_new = LJ_forces(r_new, l_domain, r_cut)
 
     for i in range(0, len(molecules_coordinates)):
-        v_new[i] = v_half_new[i] + (forces_new[i] / (2 * CH4_molecule_mass)) * 1e-7 * timestep
-        v_new[i] = np.round(v_new[i], 6)
+        v_new[i] = v_half_new[i] + (forces[i] / (2 * CH4_molecule_mass)) * (10 ** -7) * timestep
+        # v_new[i] = np.round(v_new[i], 6)
 
     return r_new, v_new, forces_new
 
@@ -312,40 +311,41 @@ def velocityVerletThermostat(timestep, T, Q, molecules_coordinates, l_domain, fo
     zeta_new = np.zeros((len(molecules_coordinates), 3))
     v_new = np.zeros((len(molecules_coordinates), 3))
 
-    U_kin = np.sum((0.5 * CH4_molecule_mass * ((v_old) ** 2))) / no_of_entities
+    U_kin = np.sum((0.5 * CH4_molecule_mass * (v_old ** 2))) / no_of_entities
 
     for i in range(0, len(molecules_coordinates)):
         # Calculate coordinates for new configuration r(t+delta t)
         r_new[i] = r_old[i] + (v_old[i] * timestep) + ((timestep ** 2) / 2) * (
-                    (forces[i] / CH4_molecule_mass)  * (1e2) - (zeta_old[i]) * v_old[i])
+                (forces[i] / CH4_molecule_mass) * 1e10 - (zeta_old[i]) * v_old[i])
         # Bring back coordinates from ghost cells
         r_new[i] = np.where(r_new[i] >= + l_domain / 2, r_new[i] - l_domain, r_new[i])
         r_new[i] = np.where(r_new[i] <= - l_domain / 2, r_new[i] + l_domain, r_new[i])
 
         zeta_half_new[i] = zeta_old[i] + (timestep / (2 * Q)) * (U_kin - 1.5 * co.k * T)
-        v_half_new[i] = v_old[i] + (timestep / 2) * ((forces[i] / CH4_molecule_mass)  * (1e2) - zeta_half_new[i] * v_old[i])
+        v_half_new[i] = v_old[i] + (timestep / 2) * (
+                    (forces[i] / CH4_molecule_mass) * 1e10 - zeta_half_new[i] * v_old[i])
 
     # Calculate forces for new configuration r(t+delta t)
     forces = LJ_forces(r_new, l_domain, r_cut)
 
     for i in range(0, len(molecules_coordinates)):
         zeta_new[i] = zeta_half_new[i] + (timestep / (2 * Q)) * (U_kin - 1.5 * co.k * T)
-        v_new[i] = (v_half_new[i] + ((timestep / 2) * (forces[i] / CH4_molecule_mass)) * (1e2))/ (
+        v_new[i] = (v_half_new[i] + ((timestep / 2) * (forces[i] / CH4_molecule_mass)) * 1e10) / (
                 1 + (timestep / 2) * zeta_new[i])
 
     return r_new, v_new, forces
 
 
 # 4
-def kineticEnergy(T, molecules_coordinates):
+def kineticEnergy(T, no_of_entities):
     """
     Function to calculate the kinetic energy of the system based on the temperature
 
     :param T: System temperature [K]
-    :param molecules_coordinates: Array of molecules coordinates -> Coordinates not important here, only array shape
+    :param no_of_entities: Number of molecules in the system [-]
     :return: Kinetic Energy [J]
     """
-    U_kin = 0.5 * co.k * T * dof * molecules_coordinates.shape[0]
+    U_kin = 0.5 * co.k * T * ndim * no_of_entities
 
     return U_kin
 
@@ -401,14 +401,13 @@ def temperature(particle_velocities):
     """
     Function to calculate system temperature
 
-    :param particle_velocities: Vector containing cartesian velocities  of each molecule [Angstroms]
+    :param particle_velocities: Vector containing cartesian velocities  of each molecule [Angstroms/fs]
     :return: System temperature [K]
     """
     v2 = particle_velocities ** 2
-    #CHECK UNITS -> THIS NEEDS CHANGING(not for you Jelle, this is just for me to track)
-    average_Kinetic = 0.5 * CH4_molecule_mass * np.average(v2)
+    average_Kinetic = 0.5 * CH4_molecule_mass * np.average(v2) * 1e-10
 
-    T = average_Kinetic / (dof * co.k) # [K]
+    T = average_Kinetic / (ndim * co.k)  # [K]
     # print(T)
 
     return T
@@ -450,127 +449,120 @@ def pressure(T, molecules_coordinates, l_domain, r_cut=14):
         dU_dr += np.sum(sr6 - 2 * sr12)
 
     dU_dr = 24 * epslj * dU_dr
-    #CHECK UNITS (not for you Jelle, this is just for me to track)
     P_tot = (molecule_density * k_B * T - (1 / (3 * domain_volume)) * dU_dr) * 1e30  # [Pa]
     # print(P_tot)
 
     return P_tot
 
 
-def write_frame(molecules_coordinates, l_domain, v, forces, trajectory_name, timestep):
-    """
+def write_frame(coords, L, vels, forces, trajectory_name, step):
+    '''
+    function to write trajectory file in LAMMPS format
 
-    :param molecules_coordinates: Array containing cartesian coordinates of each molecule [Angstroms]
-    :param l_domain: Length of box domain sides [Angstroms]
-    :param v:
-    :param forces:
-    :param trajectory_name:
-    :param timestep: Time for each step [fs]
+    In VMD you can visualize the motion of particles using this trajectory file.
+
+    :param coords: coordinates
+    :param vels: velocities
+    :param forces: forces
+    :param trajectory_name: trajectory filename
+
     :return:
-    """
+    '''
 
-    nPart = len(molecules_coordinates[:, 0])
-    nDim = len(molecules_coordinates[0, :])
+    nPart = len(coords[:, 0])
+    nDim = len(coords[0, :])
     with open(trajectory_name, 'a') as file:
         file.write('ITEM: TIMESTEP\n')
-        file.write('%i\n' % timestep)
+        file.write('%i\n' % step)
         file.write('ITEM: NUMBER OF ATOMS\n')
         file.write('%i\n' % nPart)
         file.write('ITEM: BOX BOUNDS pp pp pp\n')
         for dim in range(nDim):
-            file.write('%.6f %.6f\n' % (-0.5 * l_domain[dim], 0.5 * l_domain[dim]))
+            file.write('%.6f %.6f\n' % (-0.5 * L, 0.5 * L))
         for dim in range(3 - nDim):
             file.write('%.6f %.6f\n' % (0, 0))
         file.write('ITEM: ATOMS id type xu yu zu vx vy vz fx fy fz\n')
 
         temp = np.zeros((nPart, 9))
         for dim in range(nDim):
-            temp[:, dim] = molecules_coordinates[:, dim]
-            temp[:, dim + 3] = v[:, dim]
+            temp[:, dim] = coords[:, dim]
+            temp[:, dim + 3] = vels[:, dim]
             temp[:, dim + 6] = forces[:, dim]
 
         for part in range(nPart):
             file.write('%i %i %.4f %.4f %.4f %.6f %.6f %.6f %.4f %.4f %.4f\n' % (part + 1, 1, *temp[part, :]))
 
 
-def read_lammps_data(data_file, verbose=False):
-    """Reads a LAMMPS data file
-        Atoms
-        Velocities
-    Returns:
-        lmp_data (dict):
-            'xyz': xyz (numpy.ndarray)
-            'vel': vxyz (numpy.ndarray)
-        box (numpy.ndarray): box dimensions
-    """
-    print("Reading '" + data_file + "'")
-    with open(data_file, 'r') as f:
-        data_lines = f.readlines()
+def read_lammps_trj(lammps_trj_file):
+    def read_lammps_frame(trj):
+        """Load a frame from a LAMMPS dump file.
 
-    # TODO: improve robustness of xlo regex
-    directives = re.compile(r"""
-        ((?P<n_atoms>\s*\d+\s+atoms)
-        |
-        (?P<box>.+xlo)
-        |
-        (?P<Atoms>\s*Atoms)
-        |
-        (?P<Velocities>\s*Velocities))
-        """, re.VERBOSE)
+        Args:
+            trj (file): LAMMPS dump file of format 'ID type x y z' or
+                                                   'ID type x y z vx vy vz' or
+                                                   'ID type x y z fz'
+            read_velocities (bool): if True, reads velocity data from file
+            read_zforces (bool): if True, reads zforces data from file
 
-    i = 0
-    while i < len(data_lines):
-        match = directives.match(data_lines[i])
-        if match:
-            if verbose:
-                print(match.groups())
+        Returns:
+            xyz (numpy.ndarray):
+            types (numpy.ndarray):
+            step (int):
+            box (groupy Box object):
+            vxyz (numpy.ndarray):
+            fz (numpy.ndarray):
+        """
+        # --- begin header ---
+        trj.readline()  # text "ITEM: TIMESTEP"
+        step = int(trj.readline())  # timestep
+        trj.readline()  # text "ITEM: NUMBER OF ATOMS"
+        n_atoms = int(trj.readline())  # num atoms
+        trj.readline()  # text "ITEM: BOX BOUNDS pp pp pp"
+        Lx = trj.readline().split()  # x-dim of box
+        Ly = trj.readline().split()  # y-dim of box
+        Lz = trj.readline().split()  # z-dim of box
+        L = np.array([float(Lx[1]) - float(Lx[0]),
+                      float(Ly[1]) - float(Ly[0]),
+                      float(Lz[1]) - float(Lz[0])])
+        trj.readline()  # text
+        # --- end header ---
 
-            elif match.group('n_atoms'):
-                fields = data_lines.pop(i).split()
-                n_atoms = int(fields[0])
-                xyz = np.empty(shape=(n_atoms, 3))
-                vxyz = np.empty(shape=(n_atoms, 3))
+        xyz = np.empty(shape=(n_atoms, 3))
+        xyz[:] = np.nan
+        types = np.empty(shape=(n_atoms), dtype='int')
+        vxyz = np.empty(shape=(n_atoms, 3))
+        vxyz[:] = np.nan
+        fxyz = np.empty(shape=(n_atoms, 3))
+        fxyz[:] = np.nan
 
-            elif match.group('box'):
-                dims = np.zeros(shape=(3, 2))
-                for j in range(3):
-                    fields = [float(x) for x in data_lines.pop(i).split()[:2]]
-                    dims[j, 0] = fields[0]
-                    dims[j, 1] = fields[1]
-                L = dims[:, 1] - dims[:, 0]
+        # --- begin body ---
 
-            elif match.group('Atoms'):
-                if verbose:
-                    print('Parsing Atoms...')
-                data_lines.pop(i)
-                data_lines.pop(i)
+        IDs = []
+        for i in range(n_atoms):
+            temp = trj.readline().split()
+            a_ID = int(temp[0]) - 0  # atom ID
+            xyz[a_ID - 1] = [float(x) for x in temp[2:5]]  # coordinates
+            types[a_ID - 1] = int(temp[1])  # atom type
+            vxyz[a_ID - 1] = [float(x) for x in temp[5:8]]  # velocities
+            fxyz[a_ID - 1] = [float(x) for x in temp[8:11]]  # map(float, temp[5]) # z-forces
 
-                while i < len(data_lines) and data_lines[i].strip():
-                    fields = data_lines.pop(i).split()
-                    a_id = int(fields[0])
-                    xyz[a_id - 1] = np.array([float(fields[2]),
-                                              float(fields[3]),
-                                              float(fields[4])])
+        # --- end body ---
+        return xyz, types, step, L, vxyz, fxyz
 
-            elif match.group('Velocities'):
-                if verbose:
-                    print('Parsing Velocities...')
-                data_lines.pop(i)
-                data_lines.pop(i)
+    xyz = {}
+    vel = {}
+    forces = {}
+    with open(lammps_trj_file, 'r') as f:
+        READING = True
+        c = 0
+        while READING:
+            try:
+                xyz[c], _, _, _, vel[c], forces[c] = read_lammps_frame(f)
+                c += 1
+            except:
+                READING = False
 
-                while i < len(data_lines) and data_lines[i].strip():
-                    fields = data_lines.pop(i).split()
-                    va_id = int(fields[0])
-                    vxyz[va_id - 1] = np.array([float(fields[1]),
-                                                float(fields[2]),
-                                                float(fields[3])])
-
-            else:
-                i += 1
-        else:
-            i += 1
-
-    return xyz, vxyz, L
+    return xyz, vel, forces
 
 
 # 5
@@ -580,9 +572,10 @@ def MD_CYCLE(simulation_time, timestep, L, coordinates, force, velocity, r_cut):
 
     :param simulation_time: Total simulation time [fs]
     :param timestep: Time for each step [fs]
-    :param T: System temperature [K]
-    :param mass_density: Mass density of system [kg/m^3]
-    :param l_domain: Length of box domain sides [Angstroms]
+    :param L: Length of box domain sides [Angstroms]
+    :param coordinates:
+    :param force:
+    :param velocity:
     :param r_cut: Cut-off distance for inter-molecular interactions [Angstroms]
     :return:
     """
@@ -590,17 +583,21 @@ def MD_CYCLE(simulation_time, timestep, L, coordinates, force, velocity, r_cut):
     sample_frequency = 100
     sample_interval = steps / sample_frequency
 
+    r_old = coordinates
+    force_old = force
+    v_old = velocity
+
     for i in range(0, simulation_time):
         r_new, v_new, force_new = velocityVerlet(timestep, r_old, L, force_old, v_old, r_cut)
         print(i)
+        print(r_new)
 
         if (i + 1) % sample_interval == 0:
-            write_frame(r_new, np.array([L,L,L]), v_new, force_new, 'Declan_trj.lammps', (i + 1) * timestep)
+            write_frame(r_new, L, v_new, force_new, 'Declan_trj.lammps', (i + 1) * timestep)
 
-        coordinates = r_new
-        velocity = v_new
-        force = force_new
-
+        r_old = r_new
+        v_old = v_new
+        force_old = force_new
     return
 
 
@@ -622,14 +619,13 @@ plt.savefig('rdf.png')
 plt.show()"""
 
 # Initializing domain
-r_old, no_of_molecules = initGrid(30,358.4)
+coord_array, no_of_molecules = initGrid(30, 358.4)
 # Initializing velocity
-v_old = initVel(150, no_of_molecules)
+v_array = initVel(150, no_of_molecules)
 # Initializing force
-force_old = LJ_forces(r_old, 30, 14)
+force_array = LJ_forces(coord_array, 30, 14)
 
-MD_CYCLE(3000, 1, 30, r_old, force_old, v_old, 14)
-#MD_CYCLE(3000, 1, 150, 358.4, 30, 14)
+MD_CYCLE(3000, 1, 30, coord_array, force_array, v_array, 14)
 xyz, vel, F = read_lammps_trj('Declan_trj.lammps')
 # xyz, vel, forces = read_lammps_trj('trj.lammps')
 print(xyz)
