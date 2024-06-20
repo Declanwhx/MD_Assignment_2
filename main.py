@@ -6,14 +6,14 @@ import re
 
 ######################### CONSTANTS #########################
 # Boltzmann Constant
-k_B = 1.38065 * 10 ** -23  # [J/K]
+k_B = co.k  # [J/K]
 # Lennard-Jones variables -> Depth of well and collisional diameter
 epslj = 148 * co.k  # [J]
 sigma = 3.73  # [Angstroms]
 sigma_sq = sigma ** 2  # [Angstroms^2]
 sigma_cu = sigma ** 3  # [Angstroms^3]
-CH4_molar_mass = 16.04 * (10 ** -3)
-CH4_molecule_mass = CH4_molar_mass * (1 / co.N_A)
+CH4_molar_mass = 16.04 * (10 ** -3) # [kg/mol]
+CH4_molecule_mass = CH4_molar_mass / co.N_A # [kg]
 # Degrees of freedom
 dof = 3  # [-]
 
@@ -594,14 +594,14 @@ def MD_CYCLE(simulation_time, timestep, T, mass_density, l_domain, r_cut):
     for i in range(0, simulation_time):
         r_new, v_new, force_new = velocityVerlet(timestep, r_old, l_domain, force_old, v_old, r_cut)
 
-        r_old = r_new
-        v_old = v_new
-        force_old = force_new
-
         # print(coordinates_old)
         if (i + 1) % sample_interval == 0:
             write_frame(r_new, l_domain, v_new, force_new, 'Declan_trj.lammps',
                         (i + 1) * timestep)
+
+        r_old = r_new
+        v_old = v_new
+        force_old = force_new
 
     return
 
