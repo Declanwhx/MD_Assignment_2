@@ -215,14 +215,14 @@ def LJ_forces(molecules_coordinates, l_domain, r_cut=14):
         # CHECK THIS -> shouldn't be wrong if you offset this back to a left corner based domain
         # Shape -> (N, 3)
         d = (molecules_coordinates - coordinates_i + l_domain / 2) % l_domain - l_domain / 2
-        # d = (molecules_coordinates[i + 1:] - coordinates_i + l_domain / 2) % l_domain - l_domain / 2
         # print(d)
+        # Add arbitrary large number so that r_ij_sq for the self-interaction goes beyond cut-off
+        d[i] += 20
         # Radial distance between pairs
         # Shape -> (N)
         r_ij_sq = np.sum(d * d, axis=1)
-        r_ij_sq[i] = r_cut ** 2
         # Removes overlaps and replaces with infinitesimally small distance to result in large forces that repel away
-        r_ij_sq = np.where(r_ij_sq == 0, 0.01, r_ij_sq)
+        r_ij_sq = np.where(r_ij_sq == 0 , 0.01, r_ij_sq)
         # print(r_ij_sq)
 
         # NOTE: WE SHALL NOT COMPUTE V_IJ BECAUSE IT WOULD BE COMPUTATIONALLY MORE EXPENSIVE TO PERFORM THE SQRT
@@ -270,16 +270,16 @@ def velocityVerlet(timestep, molecules_coordinates, l_domain, forces, v_old, r_c
     r_new = np.zeros((len(molecules_coordinates), 3))
 
     for i in range(0, len(molecules_coordinates)):
-        r_new[i] = r_old[i] + (v_old[i] * timestep) + (forces[i] / CH4_molecule_mass) * 1e-4 * (timestep ** 2)
+        r_new[i] = r_old[i] + (v_old[i] * timestep) + (forces[i] / CH4_molecule_mass) * 1e-1 * (timestep ** 2)
         # Bring back coordinates from ghost cells
         r_new[i] = np.where(r_new[i] > + l_domain / 2, r_new[i] - l_domain, r_new[i])
         r_new[i] = np.where(r_new[i] < - l_domain / 2, r_new[i] + l_domain, r_new[i])
-        v_half_new[i] = v_old[i] + (forces[i] / (2 * CH4_molecule_mass)) * 1e-4 * timestep
+        v_half_new[i] = v_old[i] + (forces[i] / (2 * CH4_molecule_mass)) * 1e-1 * timestep
 
     forces_new = LJ_forces(r_new, l_domain, r_cut)
 
     for i in range(0, len(molecules_coordinates)):
-        v_new[i] = v_half_new[i] + (forces_new[i] / (2 * CH4_molecule_mass)) * 1e-4 * timestep
+        v_new[i] = v_half_new[i] + (forces_new[i] / (2 * CH4_molecule_mass)) * 1e-1 * timestep
         v_new[i] = np.round(v_new[i], 6)
 
     return r_new, v_new, forces_new
