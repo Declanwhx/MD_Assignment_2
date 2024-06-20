@@ -270,16 +270,16 @@ def velocityVerlet(timestep, molecules_coordinates, l_domain, forces, v_old, r_c
     r_new = np.zeros((len(molecules_coordinates), 3))
 
     for i in range(0, len(molecules_coordinates)):
-        r_new[i] = r_old[i] + (v_old[i] * timestep) + (forces[i] / CH4_molecule_mass) * (1e10) * (timestep ** 2)
+        r_new[i] = r_old[i] + (v_old[i] * timestep) + (forces[i] / CH4_molecule_mass) * (1e2) * (timestep ** 2)
         # Bring back coordinates from ghost cells
         r_new[i] = np.where(r_new[i] > + l_domain / 2, r_new[i] - l_domain, r_new[i])
         r_new[i] = np.where(r_new[i] < - l_domain / 2, r_new[i] + l_domain, r_new[i])
-        v_half_new[i] = v_old[i] + (forces[i] / (2 * CH4_molecule_mass)) * (1e10) * timestep
+        v_half_new[i] = v_old[i] + (forces[i] / (2 * CH4_molecule_mass)) * (1e2) * timestep
 
     forces = LJ_forces(r_new, l_domain, r_cut)
 
     for i in range(0, len(molecules_coordinates)):
-        v_new[i] = v_half_new[i] + (forces[i] / (2 * CH4_molecule_mass)) * (1e10) * timestep
+        v_new[i] = v_half_new[i] + (forces[i] / (2 * CH4_molecule_mass)) * (1e2) * timestep
         v_new[i] = np.round(v_new[i], 6)
 
     return r_new, v_new, forces
@@ -316,20 +316,20 @@ def velocityVerletThermostat(timestep, T, Q, molecules_coordinates, l_domain, fo
     for i in range(0, len(molecules_coordinates)):
         # Calculate coordinates for new configuration r(t+delta t)
         r_new[i] = r_old[i] + (v_old[i] * timestep) + ((timestep ** 2) / 2) * (
-                    (forces[i] / CH4_molecule_mass) - (zeta_old[i]) * v_old[i])
+                    (forces[i] / CH4_molecule_mass)  * (1e2) - (zeta_old[i]) * v_old[i])
         # Bring back coordinates from ghost cells
         r_new[i] = np.where(r_new[i] >= + l_domain / 2, r_new[i] - l_domain, r_new[i])
         r_new[i] = np.where(r_new[i] <= - l_domain / 2, r_new[i] + l_domain, r_new[i])
 
         zeta_half_new[i] = zeta_old[i] + (timestep / (2 * Q)) * (U_kin - 1.5 * co.k * T)
-        v_half_new[i] = v_old[i] + (timestep / 2) * ((forces[i] / CH4_molecule_mass) - zeta_half_new[i] * v_old[i])
+        v_half_new[i] = v_old[i] + (timestep / 2) * ((forces[i] / CH4_molecule_mass)  * (1e2) - zeta_half_new[i] * v_old[i])
 
     # Calculate forces for new configuration r(t+delta t)
     forces = LJ_forces(r_new, l_domain, r_cut)
 
     for i in range(0, len(molecules_coordinates)):
         zeta_new[i] = zeta_half_new[i] + (timestep / (2 * Q)) * (U_kin - 1.5 * co.k * T)
-        v_new[i] = (v_half_new[i] + (timestep / 2) * (forces[i] / CH4_molecule_mass)) / (
+        v_new[i] = (v_half_new[i] + ((timestep / 2) * (forces[i] / CH4_molecule_mass)) * (1e2))/ (
                 1 + (timestep / 2) * zeta_new[i])
 
     return r_new, v_new, forces
