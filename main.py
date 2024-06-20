@@ -213,11 +213,16 @@ def LJ_forces(molecules_coordinates, l_domain, r_cut=14):
     for (i, coordinates_i) in enumerate(molecules_coordinates):
         # list containing Δx, Δy, Δz for each pair
         # CHECK THIS -> shouldn't be wrong if you offset this back to a left corner based domain
-        d = (molecules_coordinates[i + 1:] - coordinates_i + l_domain / 2) % l_domain - l_domain / 2
+        # Shape -> (N, 3)
+        d = (molecules_coordinates - coordinates_i + l_domain / 2) % l_domain - l_domain / 2
+        # d = (molecules_coordinates[i + 1:] - coordinates_i + l_domain / 2) % l_domain - l_domain / 2
         # print(d)
         # Radial distance between pairs
+        # Shape -> (N)
         r_ij_sq = np.sum(d * d, axis=1)
-        r_ij_sq = np.where(r_ij_sq == 0, 0.1, r_ij_sq)
+        r_ij_sq[i] = r_cut ** 2
+        # Removes overlaps and replaces with infinitesimally small distance to result in large forces that repel away
+        r_ij_sq = np.where(r_ij_sq == 0, 0.00001, r_ij_sq)
         # print(r_ij_sq)
 
         # NOTE: WE SHALL NOT COMPUTE V_IJ BECAUSE IT WOULD BE COMPUTATIONALLY MORE EXPENSIVE TO PERFORM THE SQRT
@@ -234,12 +239,12 @@ def LJ_forces(molecules_coordinates, l_domain, r_cut=14):
         sr12 = (sr6 ** 2) / r_ij_sq
 
         # Force magnitude
-        dU_dr = - 24 * epslj * (sr6 - 2 * sr12)
+        dU_dr = ((24 * epslj) / r_ij_sq) * (2 * sr12 - sr6)
         # Vectorize dU_dr
-        dU_dr = d * dU_dr[:, np.newaxis]
+        F = - d * dU_dr[:, np.newaxis]
         # print(dU_dr)
         # Summation of all pair forces and storing the force vectors into a 2D array
-        forces[i] = np.sum(dU_dr, axis=0) # [J/Angstrom]
+        forces[i] = np.sum(F, axis=0)  # [J/Angstrom]
         # print(forces[i])
 
     return forces
