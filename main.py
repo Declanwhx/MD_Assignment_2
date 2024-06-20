@@ -29,7 +29,7 @@ def convertMassDensity(mass_density):
     :param mass_density: Mass density of system [kg/m^3]
     :return: Molecule density [1/Angstrom^3]
     """
-    molecule_density = ((mass_density / (CH4_molar_mass * 1e-3)) * co.N_A) / (10 ** 30)
+    molecule_density = ((mass_density / (CH4_molar_mass * 1e-3)) * co.N_A) / (1e30)
     return molecule_density
 
 
@@ -239,6 +239,7 @@ def LJ_forces(molecules_coordinates, l_domain, r_cut=14):
         sr12 = (sr6 ** 2) / r_ij_sq
 
         # Force magnitude
+        # Unit vectors are ji not ij so the signs are reversed which is why no -ve is in front
         dU_dr = ((24 * epslj) / r_ij_sq) * (2 * sr12 - sr6)
         # Vectorize dU_dr
         F = - d * dU_dr[:, np.newaxis]
@@ -590,7 +591,7 @@ def MD_CYCLE(simulation_time, timestep, L, coordinates, force, velocity, r_cut):
     sample_interval = steps / sample_frequency
 
     for i in range(0, simulation_time):
-        r_new, v_new, force_new = velocityVerlet(timestep, coordinates, L, velocity, force, r_cut)
+        r_new, v_new, force_new = velocityVerlet(timestep, r_old, L, force_old, v_old, r_cut)
         print(i)
 
         if (i + 1) % sample_interval == 0:
