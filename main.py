@@ -6,8 +6,6 @@ import re
 from mpl_toolkits.mplot3d import Axes3D
 
 ######################### CONSTANTS #########################
-# Boltzmann Constant
-k_B = co.k  # [J/K]
 # Lennard-Jones variables -> Depth of well and collisional diameter
 epslj = 148 * co.k  # [J]
 sigma = 3.73  # [Angstroms]
@@ -30,7 +28,7 @@ def convertMassDensity(mass_density):
     :param mass_density: Mass density of system [kg/m^3]
     :return: Molecule density [1/Angstrom^3]
     """
-    molecule_density = ((mass_density / (CH4_molar_mass * 1e-3)) * co.N_A) / (10 ** 30)
+    molecule_density = ((mass_density / (CH4_molar_mass * 1e-3)) * co.N_A) / (1e30)
     return molecule_density
 
 
