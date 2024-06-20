@@ -29,7 +29,7 @@ def convertMassDensity(mass_density):
     :param mass_density: Mass density of system [kg/m^3]
     :return: Molecule density [1/Angstrom^3]
     """
-    molecule_density = ((mass_density / CH4_molar_mass) * co.N_A) / (10 ** 30)
+    molecule_density = ((mass_density / (CH4_molar_mass * 1e-3)) * co.N_A) / (10 ** 30)
     return molecule_density
 
 
@@ -155,10 +155,10 @@ def initGrid(l_domain, mass_density):
     :return: numpy array containing coordinates centered around origin
     :return: box size
     """
-    return molecules_coordinates + spac / 2 - l_domain / 2, l_domain
+    return molecules_coordinates + spac / 2 - l_domain / 2, nPart
 
 
-# 1.2 CURRENTLY I AM RELOOKING AT THIS.
+# 1.2
 def initVel(T, no_of_entities):
     """
     Function to initialize temperature
@@ -222,7 +222,7 @@ def LJ_forces(molecules_coordinates, l_domain, r_cut=14):
         r_ij_sq = np.sum(d * d, axis=1)
         r_ij_sq[i] = r_cut ** 2
         # Removes overlaps and replaces with infinitesimally small distance to result in large forces that repel away
-        r_ij_sq = np.where(r_ij_sq == 0, 0.00001, r_ij_sq)
+        r_ij_sq = np.where(r_ij_sq == 0, 0.01, r_ij_sq)
         # print(r_ij_sq)
 
         # NOTE: WE SHALL NOT COMPUTE V_IJ BECAUSE IT WOULD BE COMPUTATIONALLY MORE EXPENSIVE TO PERFORM THE SQRT
@@ -573,7 +573,7 @@ def read_lammps_data(data_file, verbose=False):
 
 
 # 5
-def MD_CYCLE(simulation_time, timestep, T, mass_density, l_domain, r_cut):
+def MD_CYCLE(simulation_time, timestep, L, coordinates, force, velocity, r_cut):
     """
     Function to run an MD loop for the specified duration and timestep.
 
@@ -589,27 +589,18 @@ def MD_CYCLE(simulation_time, timestep, T, mass_density, l_domain, r_cut):
     sample_frequency = 100
     sample_interval = steps / sample_frequency
 
-    # Initializing domain
-    r_old, L = initGrid(l_domain, mass_density)
-    # Initializing velocity
-    v_old = initVel(T, r_old.shape[0])
-    # Initializing force
-    force_old = LJ_forces(r_old, l_domain, r_cut)
-
     for i in range(0, simulation_time):
-        r_new, v_new, force_new = velocityVerlet(timestep, r_old, l_domain, force_old, v_old, r_cut)
+        r_new, v_new, force_new = velocityVerlet(timestep, coordinates, L, velocity, force, r_cut)
+        print(i)
 
-        # print(coordinates_old)
         if (i + 1) % sample_interval == 0:
-            write_frame(r_new, l_domain, v_new, force_new, 'Declan_trj.lammps',
-                        (i + 1) * timestep)
+            write_frame(r_new, np.array([L,L,L]), v_new, force_new, 'Declan_trj.lammps', (i + 1) * timestep)
 
-        r_old = r_new
-        v_old = v_new
-        force_old = force_new
+        coordinates = r_new
+        velocity = v_new
+        force = force_new
 
     return
-
 
 
 """coordinates_1, l_domain_1 = initGrid(30, 0.5 * 358.4)
@@ -629,8 +620,17 @@ plt.xlabel("r [A]")
 plt.savefig('rdf.png')
 plt.show()"""
 
-MD_CYCLE(3000, 1, 150, 358.4, 30, 14)
-"""xyz, vel, L = read_lammps_data('lammps.data')
+# Initializing domain
+r_old, no_of_molecules = initGrid(30,358.4)
+# Initializing velocity
+v_old = initVel(150, no_of_molecules)
+# Initializing force
+force_old = LJ_forces(r_old, 30, 14)
+
+MD_CYCLE(3000, 1, 30, r_old, force_old, v_old, 14)
+#MD_CYCLE(3000, 1, 150, 358.4, 30, 14)
+xyz, vel, F = read_lammps_trj('Declan_trj.lammps')
+# xyz, vel, forces = read_lammps_trj('trj.lammps')
 print(xyz)
 print(vel)
-print(L)"""
+print(F)
