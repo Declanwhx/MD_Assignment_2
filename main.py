@@ -5,6 +5,13 @@ import scipy.constants as co
 import re
 from mpl_toolkits.mplot3d import Axes3D
 
+
+"""
+Dear Declan, I looked through your code. I did not see too many issues. I am worried about your unit conversions though.
+I advice just Angstroms for positions, fs for time (and A/fs for velocity) and just use jule for interatomic energies (or J/atom).
+You can always convert your units to zJ/atom or bar in your final outputs afterwards.
+Note that lammps uses different units. So you cannot just compare: https://docs.lammps.org/units.html. The output style used is real.
+"""
 ######################### CONSTANTS #########################
 # Lennard-Jones variables -> Depth of well and collisional diameter
 epslj = 148 * co.k  # [J]
@@ -28,7 +35,8 @@ def convertMassDensity(mass_density):
     :param mass_density: Mass density of system [kg/m^3]
     :return: Molecule density [1/Angstrom^3]
     """
-    molecule_density = ((mass_density / (CH4_molar_mass * 1e-3)) * co.N_A) / (1e30)
+    molecule_density = (
+        (mass_density / (CH4_molar_mass * 1e-3)) * co.N_A) / (1e30)
     return molecule_density
 
 
@@ -211,7 +219,8 @@ def LJ_forces(molecules_coordinates, l_domain, r_cut):
         # list containing Δx, Δy, Δz for each pair
         # CHECK THIS -> shouldn't be wrong if you offset this back to a left corner based domain
         # Shape -> (N, 3)
-        d = (molecules_coordinates - molecules_coordinates[i] + l_domain / 2) % l_domain - l_domain / 2
+        d = (molecules_coordinates -
+             molecules_coordinates[i] + l_domain / 2) % l_domain - l_domain / 2
         # print(d)
         # Add arbitrary large number so that r_ij_sq for the self-interaction goes beyond cut-off
         d[i] += 20
@@ -267,24 +276,29 @@ def velocityVerlet(timestep, molecules_coordinates, l_domain, forces, v_old, r_c
     v_half_new = np.zeros((len(molecules_coordinates), 3))
     v_new = np.zeros((len(molecules_coordinates), 3))
     r_new = np.zeros((len(molecules_coordinates), 3))
-
+    # TODO: You could do this with pure array operations, instead of a for loop. That would help performance
     for i in range(0, len(molecules_coordinates)):
-        r_new[i] = r_old[i] + (v_old[i] * timestep) + (forces[i] / CH4_molecule_mass) * 1e-7 * (timestep ** 2)
+        r_new[i] = r_old[i] + (v_old[i] * timestep) + \
+            (forces[i] / CH4_molecule_mass) * 1e-7 * (timestep ** 2)
         # Bring back coordinates from ghost cells
-        r_new[i] = np.where(r_new[i] > + l_domain / 2, r_new[i] - l_domain, r_new[i])
-        r_new[i] = np.where(r_new[i] < - l_domain / 2, r_new[i] + l_domain, r_new[i])
-        v_half_new[i] = v_old[i] + (forces[i] / (2 * CH4_molecule_mass)) * 1e-7 * timestep
+        r_new[i] = np.where(r_new[i] > + l_domain / 2,
+                            r_new[i] - l_domain, r_new[i])
+        r_new[i] = np.where(r_new[i] < - l_domain / 2,
+                            r_new[i] + l_domain, r_new[i])
+        v_half_new[i] = v_old[i] + \
+            (forces[i] / (2 * CH4_molecule_mass)) * 1e-7 * timestep
 
     forces_new = LJ_forces(r_new, l_domain, r_cut)
 
     for i in range(0, len(molecules_coordinates)):
-        v_new[i] = v_half_new[i] + (forces[i] / (2 * CH4_molecule_mass)) * 1e-7 * timestep
+        v_new[i] = v_half_new[i] + \
+            (forces[i] / (2 * CH4_molecule_mass)) * 1e-7 * timestep
         # v_new[i] = np.round(v_new[i], 6)
 
     return r_new, v_new, forces_new
 
 
-# 6 
+# 6
 def velocityVerletThermostat(timestep, T, Q, molecules_coordinates, l_domain, forces, v_old, r_cut):
     '''
 
@@ -315,22 +329,26 @@ def velocityVerletThermostat(timestep, T, Q, molecules_coordinates, l_domain, fo
     for i in range(0, len(molecules_coordinates)):
         # Calculate coordinates for new configuration r(t+delta t)
         r_new[i] = r_old[i] + (v_old[i] * timestep) + ((timestep ** 2) / 2) * (
-                (forces[i] / CH4_molecule_mass) * 1e-7 - (zeta_old[i]) * v_old[i])
+            (forces[i] / CH4_molecule_mass) * 1e-7 - (zeta_old[i]) * v_old[i])
         # Bring back coordinates from ghost cells
-        r_new[i] = np.where(r_new[i] >= + l_domain / 2, r_new[i] - l_domain, r_new[i])
-        r_new[i] = np.where(r_new[i] <= - l_domain / 2, r_new[i] + l_domain, r_new[i])
+        r_new[i] = np.where(r_new[i] >= + l_domain / 2,
+                            r_new[i] - l_domain, r_new[i])
+        r_new[i] = np.where(r_new[i] <= - l_domain / 2,
+                            r_new[i] + l_domain, r_new[i])
 
-        zeta_half_new[i] = zeta_old[i] + (timestep / (2 * Q)) * (U_kin - 1.5 * co.k * T)
+        zeta_half_new[i] = zeta_old[i] + \
+            (timestep / (2 * Q)) * (U_kin - 1.5 * co.k * T)
         v_half_new[i] = v_old[i] + (timestep / 2) * (
-                    (forces[i] / CH4_molecule_mass) * 1e-7 - zeta_half_new[i] * v_old[i])
+            (forces[i] / CH4_molecule_mass) * 1e-7 - zeta_half_new[i] * v_old[i])
 
     # Calculate forces for new configuration r(t+delta t)
     forces = LJ_forces(r_new, l_domain, r_cut)
 
     for i in range(0, len(molecules_coordinates)):
-        zeta_new[i] = zeta_half_new[i] + (timestep / (2 * Q)) * (U_kin - 1.5 * co.k * T)
+        zeta_new[i] = zeta_half_new[i] + \
+            (timestep / (2 * Q)) * (U_kin - 1.5 * co.k * T)
         v_new[i] = (v_half_new[i] + ((timestep / 2) * (forces[i] / CH4_molecule_mass)) * 1e10) / (
-                1 + (timestep / 2) * zeta_new[i])
+            1 + (timestep / 2) * zeta_new[i])
 
     return r_new, v_new, forces
 
@@ -373,7 +391,8 @@ def potentialEnergy(molecules_coordinates, l_domain, r_cut=14):
 
     for (i, coordinates_i) in enumerate(molecules_coordinates):
         # list containing Δx, Δy, Δz for each pair
-        d = (molecules_coordinates[i + 1:] - coordinates_i + l_domain / 2) % l_domain - l_domain / 2
+        d = (molecules_coordinates[i + 1:] - coordinates_i +
+             l_domain / 2) % l_domain - l_domain / 2
         r_ij_sq = np.sum(d * d, axis=1)
         # print(r_ij_sq)
 
@@ -387,7 +406,7 @@ def potentialEnergy(molecules_coordinates, l_domain, r_cut=14):
     U_lj = 4 * epslj * U_lj  # [J]
     # print(U_lj)
     U_ljtail = no_of_entities * (8 / 3) * co.pi * epslj * molecule_density * sigma_cu * (
-            (1 / 3) * (sr3 * sr3 * sr3) - sr3)  # [J]
+        (1 / 3) * (sr3 * sr3 * sr3) - sr3)  # [J]
     # print(U_ljtail)
     U_pot = U_lj + U_ljtail  # [J]
     # print(U_pot)
@@ -436,7 +455,8 @@ def pressure(T, molecules_coordinates, l_domain, r_cut=14):
 
     for (i, coordinates_i) in enumerate(molecules_coordinates):
         # list containing Δx, Δy, Δz for each pair
-        d = (molecules_coordinates[i + 1:] - coordinates_i + l_domain / 2) % l_domain - l_domain / 2
+        d = (molecules_coordinates[i + 1:] - coordinates_i +
+             l_domain / 2) % l_domain - l_domain / 2
         r_ij_sq = np.sum(d * d, axis=1)
         # print(r_ij_sq)
 
@@ -448,7 +468,8 @@ def pressure(T, molecules_coordinates, l_domain, r_cut=14):
         dU_dr += np.sum(sr6 - 2 * sr12)
 
     dU_dr = 24 * epslj * dU_dr
-    P_tot = (molecule_density * k_B * T - (1 / (3 * domain_volume)) * dU_dr) * 1e30  # [Pa]
+    P_tot = (molecule_density * k_B * T -
+             (1 / (3 * domain_volume)) * dU_dr) * 1e30  # [Pa]
     # print(P_tot)
 
     return P_tot
@@ -489,9 +510,11 @@ def write_frame(coords, L, vels, forces, trajectory_name, step):
             temp[:, dim + 6] = forces[:, dim]
 
         for part in range(nPart):
-            file.write('%i %i %.4f %.4f %.4f %.6f %.6f %.6f %.4f %.4f %.4f\n' % (part + 1, 1, *temp[part, :]))
+            file.write('%i %i %.4f %.4f %.4f %.6f %.6f %.6f %.4f %.4f %.4f\n' % (
+                part + 1, 1, *temp[part, :]))
 
 
+# TODO: Nested definitions are a bit strange to use here. There are better solutions.
 def read_lammps_trj(lammps_trj_file):
     def read_lammps_frame(trj):
         """Load a frame from a LAMMPS dump file.
@@ -543,7 +566,8 @@ def read_lammps_trj(lammps_trj_file):
             xyz[a_ID - 1] = [float(x) for x in temp[2:5]]  # coordinates
             types[a_ID - 1] = int(temp[1])  # atom type
             vxyz[a_ID - 1] = [float(x) for x in temp[5:8]]  # velocities
-            fxyz[a_ID - 1] = [float(x) for x in temp[8:11]]  # map(float, temp[5]) # z-forces
+            # map(float, temp[5]) # z-forces
+            fxyz[a_ID - 1] = [float(x) for x in temp[8:11]]
 
         # --- end body ---
         return xyz, types, step, L, vxyz, fxyz
@@ -587,16 +611,19 @@ def MD_CYCLE(simulation_time, timestep, L, coordinates, force, velocity, r_cut):
     v_old = velocity
 
     for i in range(0, simulation_time):
-        r_new, v_new, force_new = velocityVerlet(timestep, r_old, L, force_old, v_old, r_cut)
+        r_new, v_new, force_new = velocityVerlet(
+            timestep, r_old, L, force_old, v_old, r_cut)
         print(i)
 
         if (i + 1) % sample_interval == 0:
-            write_frame(r_new, L, v_new, force_new, 'Declan_trj.lammps', (i + 1) * timestep)
+            write_frame(r_new, L, v_new, force_new,
+                        'Declan_trj.lammps', (i + 1) * timestep)
             # NOT WRITING FORCE FOR SOME REASON BUT IF WE PRINT FORCE, THERE ARE NUMBERS
 
         r_old = r_new
         v_old = v_new
         force_old = force_new
+
 
 """coordinates_1, l_domain_1 = initGrid(30, 0.5 * 358.4)
 coordinates_2, l_domain_2 = initGrid(30,358.4)
@@ -629,4 +656,3 @@ xyz, vel, F = read_lammps_trj('Declan_trj.lammps')
 print(xyz)
 print(vel)
 print(F)
-
