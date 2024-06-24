@@ -387,22 +387,6 @@ def velocityVerlet(timestep, coordinates_array, l_domain, forces, v_old, r_cut):
 
     v_new = v_half_new + (forces / (2 * CH4_molecule_mass)) * 1e-7 * timestep
 
-    """v_half_new = np.zeros((len(coordinates_array), 3))
-    v_new = np.zeros((len(coordinates_array), 3))
-    r_new = np.zeros((len(coordinates_array), 3))
-
-    for i in range(0, len(coordinates_array)):
-        r_new[i] = r_old[i] + (v_old[i] * timestep) + (forces[i] / CH4_molecule_mass) * 1e-7 * (timestep ** 2)
-        # Bring back coordinates from ghost cells
-        r_new[i] = np.where(r_new[i] > + l_domain / 2, r_new[i] - l_domain, r_new[i])
-        r_new[i] = np.where(r_new[i] < - l_domain / 2, r_new[i] + l_domain, r_new[i])
-        v_half_new[i] = v_old[i] + (forces[i] / (2 * CH4_molecule_mass)) * 1e-7 * timestep
-
-    forces_new = LJ_forces(r_new, l_domain, r_cut)
-
-    for i in range(0, len(coordinates_array)):
-        v_new[i] = v_half_new[i] + (forces[i] / (2 * CH4_molecule_mass)) * 1e-7 * timestep"""
-
     return r_new, v_new, forces_new
 
 
@@ -429,50 +413,22 @@ def velocityVerletThermostat(timestep, T, Q, coordinates_array, l_domain, forces
     r_old = coordinates_array
 
     U_kin = kineticEnergy(v_old)
-
+    # 1E-7 for conversion to Angstrom/fs^2 and to convert kilo.
     r_new = r_old + (v_old * timestep) + ((forces / CH4_molecule_mass) * 1e-7 - (zeta_old * v_old)) * (
                 (timestep ** 2) / 2)
     r_new = np.where(r_new > + l_domain / 2, r_new - l_domain, r_new)
     r_new = np.where(r_new < - l_domain / 2, r_new + l_domain, r_new)
 
-    # zeta_half_new = zeta_old + ((U_kin / co.N_A / N) * 1e3 - ((3 / 2) * co.k * T)) * (timestep / (2 * Q))
+    # U_kin here is in kJ/mol so 3/2kbT has been multiplied by N_A and 1E-3 to maintain unit consistency
     zeta_half_new = zeta_old + ((U_kin / N) - ((3 / 2) * co.R * T) * 1e-3) * (timestep / (2 * Q))
     v_half_new = v_old + ((forces / CH4_molecule_mass) * 1e-7 - (zeta_half_new * v_old)) * (timestep / 2)
 
     forces = LJ_forces(r_new, l_domain, r_cut)
 
-    # zeta_new = zeta_half_new + (timestep / (2 * Q)) * ((U_kin / co.N_A / N) * 1e3 - ((3 / 2) * co.k * T))
     zeta_new = zeta_half_new + (timestep / (2 * Q)) * ((U_kin / N) - ((3 / 2) * co.R * T) * 1e-3)
     v_new = (v_half_new + ((timestep / 2) * (forces / CH4_molecule_mass) * 1e-7)) / (1 + (timestep / 2) * zeta_new)
 
     T_new = temperature(v_new)
-    """
-    zeta_half_new = np.zeros((len(coordinates_array), 3))
-    v_half_new = np.zeros((len(coordinates_array), 3))
-
-    r_new = np.zeros((len(coordinates_array), 3))
-    zeta_new = np.zeros((len(coordinates_array), 3))
-    v_new = np.zeros((len(coordinates_array), 3))
-    
-    for i in range(0, len(coordinates_array)):
-        # Calculate coordinates for new configuration r(t + Δt)
-        r_new[i] = r_old[i] + (v_old[i] * timestep) + (
-                (forces[i] / CH4_molecule_mass) * 1e-7 - (zeta_old[i] * v_old[i])) * ((timestep ** 2) / 2)
-        # Bring back coordinates from ghost cells
-        r_new[i] = np.where(r_new[i] > + l_domain / 2, r_new[i] - l_domain, r_new[i])
-        r_new[i] = np.where(r_new[i] < - l_domain / 2, r_new[i] + l_domain, r_new[i])
-
-        zeta_half_new[i] = zeta_old[i] + ((U_kin / co.N_A / N) * 1e3 - ((3/2) * co.k * T)) * (timestep / (2 * Q))
-        v_half_new[i] = v_old[i] + ((forces[i] / CH4_molecule_mass) * 1e-7 - (zeta_half_new[i] * v_old[i])) * (
-                timestep / 2)
-
-    # Calculate forces for new configuration r(t + Δt)
-    forces = LJ_forces(r_new, l_domain, r_cut)
-
-    for i in range(0, len(coordinates_array)):
-        zeta_new[i] = zeta_half_new[i] + (timestep / (2 * Q)) * ((U_kin / co.N_A / N) * 1e3 - ((3/2) * co.k * T))
-        v_new[i] = (v_half_new[i] + ((timestep / 2) * (forces[i] / CH4_molecule_mass) * 1e-7)) / (
-                1 + (timestep / 2) * zeta_new[i])"""
 
     return r_new, v_new, forces, zeta_new, T_new
 
