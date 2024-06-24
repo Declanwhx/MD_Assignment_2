@@ -244,12 +244,12 @@ def kineticEnergy(velocity_field):
     Function to calculate the instantaneous kinetic energy of the system
 
     :param velocity_field: Array containing [u, v, w] velocities of each molecule -> Array shape = (nParts, 3)
-    :return: Kinetic Energy [J]
+    :return: Kinetic Energy [kJ/mol]
     """
     v2 = np.sum(velocity_field ** 2, axis=1)
     U_kin = 0.5 * CH4_molar_mass * np.sum(v2) * 1e4  # [kJ/mol]
-
     # print(U_kin)
+    
     return U_kin
 
 
@@ -261,14 +261,12 @@ def potentialEnergy(coordinates_array, l_domain, r_cut=14):
     :param coordinates_array: Array containing cartesian coordinates of each molecule [Angstroms]
     :param l_domain: Length of box domain sides [Angstroms]
     :param r_cut: Cut-off distance for inter-molecular interactions [Angstroms]
-    :return: Total Lennard-Jones potential of the system [J]
+    :return: Total Lennard-Jones potential of the system [kJ/mol]
     """
     # coordinates_array = np.array(coordinates_array)
     no_of_entities = coordinates_array.shape[0]
     # Simulation box size, note, we shall work with angstroms [Angstroms]
     domain_volume = l_domain ** 3
-    # Molecule density
-    molecule_density = no_of_entities / domain_volume  # [1/Angstroms^3]
 
     # Initialized the Lennard-Jones parameters for the calculation of potential energy
     U_lj = 0
@@ -322,7 +320,7 @@ def pressure(T, coordinates_array, l_domain, r_cut=14):
     :param coordinates_array: Array containing cartesian coordinates of each molecule [Angstroms]
     :param l_domain: Length of box domain sides [Angstroms]
     :param r_cut: Cut-off distance for inter-molecular interactions [Angstroms]
-    :return: Total system pressure [Pa]
+    :return: Total system pressure [atm]
     """
     no_of_entities = coordinates_array.shape[0]
     # Simulation box size [Angstroms^3]
@@ -536,6 +534,12 @@ def read_lammps_trj(lammps_trj_file):
 
 
 def postProcStateVar(file='log.lammps'):
+    """
+    Function to extract data from log.lammps file
+
+    :param file: log.lammps file
+    :return: State variables
+    """
     log = lammps_logfile.File(file)
 
     time = log.get("Step")
