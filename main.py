@@ -414,6 +414,7 @@ def velocityVerletThermostat(timestep, T, Q, coordinates_array, l_domain, forces
     v_half_new = v_old + ((forces / CH4_molecule_mass) * 1e-7 - (zeta_half_new * v_old)) * (timestep / 2)
 
     forces = LJ_forces(r_new, l_domain, r_cut)
+    U_kin = kineticEnergy(v_half_new)
 
     zeta_new = zeta_half_new + (timestep / (2 * Q)) * ((U_kin / N) - ((3 / 2) * co.R * T) * 1e-3)
     v_new = (v_half_new + ((timestep / 2) * (forces / CH4_molecule_mass) * 1e-7)) / (1 + (timestep / 2) * zeta_new)
