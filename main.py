@@ -4,13 +4,6 @@ import matplotlib.pyplot as plt
 import scipy.constants as co
 import re
 import lammps_logfile
-import re, yaml
-
-try:
-    from yaml import CSafeLoader as Loader
-except ImportError:
-    from yaml import SafeLoader as Loader
-from mpl_toolkits.mplot3d import Axes3D
 
 # # # # # # # # # # # # # # # CONSTANTS # # # # # # # # # # # # # # #
 k_B = co.k  # Boltzmann Constant [J/K]
