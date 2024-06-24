@@ -3,19 +3,27 @@ import time
 import matplotlib.pyplot as plt
 import scipy.constants as co
 import re
+import lammps_logfile
+import re, yaml
+
+try:
+    from yaml import CSafeLoader as Loader
+except ImportError:
+    from yaml import SafeLoader as Loader
 from mpl_toolkits.mplot3d import Axes3D
 
-######################### CONSTANTS #########################
-# Lennard-Jones variables -> Depth of well and collisional diameter
-epslj = 148 * co.k  # [J]
-sigma = 3.73  # [Angstroms]
+# # # # # # # # # # # # # # # CONSTANTS # # # # # # # # # # # # # # #
+k_B = co.k  # Boltzmann Constant [J/K]
+epslj = 148 * co.k  # Depth of well [J]
+sigma = 3.73  # Collisional diameter [Angstroms]
 sigma_sq = sigma ** 2  # [Angstroms^2]
 sigma_cu = sigma ** 3  # [Angstroms^3]
-CH4_molar_mass = 16.04  # [g/mol]
-CH4_molecule_mass = CH4_molar_mass * (1 / co.N_A)  # [g]
-# Degrees of freedom
-ndim = 3  # [-]
+CH4_molar_mass = 16.04  # CH4 Molar mass [g/mol]
+CH4_molecule_mass = CH4_molar_mass * (1 / co.N_A)  # Mass of a single CH4 molecule [g]
+ndim = 3  # Degrees of freedom [-]
 
+
+# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 # # # # # # # # # # # # # # # FUNCTIONS # # # # # # # # # # # # # # #
@@ -61,7 +69,7 @@ def rdf(xyz, LxLyLz, n_bins=100, r_range=(0.01, 10.0)):
         xyz_j = np.vstack([xyz[:i], xyz[i + 1:]])
         # Distances between molecule i and molecules j != i in xyz array for each pair
         d = np.abs(xyz_i - xyz_j)
-        # PBC revert
+        # PBC
         d = np.where(d > 0.5 * LxLyLz, LxLyLz - d, d)
         # Radial distance
         d = np.sqrt(np.sum(d ** 2, axis=-1))
@@ -100,15 +108,15 @@ def initGrid(l_domain, mass_density):
     :param mass_density: Mass density of particles [kg/m^3]
     """
     molecule_density = convertMassDensity(mass_density)
-    nPart = int(np.ceil(molecule_density * l_domain ** 3))
-    # print(nPart)
+    no_of_entities = int(np.ceil(molecule_density * l_domain ** 3))
+    # print(no_of_entities)
 
     # load empty array for coordinates
-    molecules_coordinates = np.zeros((nPart, 3))
+    coordinates_array = np.zeros((no_of_entities, 3))
     # print(coords.shape[0])
 
     # Find number of particles in each lattice line -> round up to nearest in
-    n = int(np.ceil(nPart ** (1 / 3)))
+    n = int(np.ceil(no_of_entities ** (1 / 3)))
     # print(n)
 
     # define lattice spacing
@@ -119,8 +127,8 @@ def initGrid(l_domain, mass_density):
     # print(index)
 
     # assign particle positions
-    for part in range(nPart):
-        molecules_coordinates[part, :] = index * spac
+    for part in range(no_of_entities):
+        coordinates_array[part, :] = np.round(index * spac, 2)
 
         # advance particle position
         index[0] += 1
@@ -133,20 +141,15 @@ def initGrid(l_domain, mass_density):
                 index[1] = 0
                 index[2] += 1
 
+    # Uncomment this block to generate .xyz files for visualization on VMD
     """
-    plt.figure()
-    plt.scatter(x, y)
-    plt.show()
-    """
-
-    """
-    r, g_r = rdf(coords, np.array([L, L, L]))
-    plt.scatter(r, g_r, 1)
-    # plt.title("")
-    plt.ylabel("g(r)")
-    plt.xlabel("r [A]")
-    plt.savefig('rdf.png')
-    plt.show()
+    molecules_coordinates = open('generated_box_3.xyz', "w")
+    molecules_coordinates.write(str(no_of_entities) + "\n")
+    molecules_coordinates.write("box.pdb \n")
+    for i in range(0, no_of_entities):
+        molecules_coordinates.write(
+            "{0:<6}{1:>12}{2:>15}{3:>16}".format("C", coordinates_array[i][0], coordinates_array[i][1],
+                                                 coordinates_array[i][2]) + "\n")
     """
 
     """
@@ -154,7 +157,8 @@ def initGrid(l_domain, mass_density):
     :return: numpy array containing coordinates centered around origin
     :return: box size
     """
-    return molecules_coordinates + spac / 2 - l_domain / 2, nPart
+
+    return coordinates_array + spac / 2 - l_domain / 2, no_of_entities
 
 
 # 1.2
@@ -164,7 +168,7 @@ def initVel(T, no_of_entities):
 
     :param T: System temperature [K]
     :param no_of_entities: Number of molecules in the system [-]
-    :return: Vector of molecules velocities and scaling factor
+    :return: Vector of molecules velocities [Angstrom/fs]
     """
     # Generate random velocity
     # Given in notes -> As a rule of thumb, a fast moving atm should move at most O(1%) of its diameter in a timestep
@@ -179,7 +183,6 @@ def initVel(T, no_of_entities):
     v2_average = np.average(v2)
 
     # System temperature with randomized velocities
-    # T_init = (CH4_molecule_mass * v2_average * 1e10) / (ndim * co.k)
     T_init = (CH4_molar_mass * v2_average * 1e4) / (ndim * co.R * 1e-3)
     # print(T_init)
 
@@ -192,52 +195,45 @@ def initVel(T, no_of_entities):
 
 
 # 2.1 and 2.2
-def LJ_forces(molecules_coordinates, l_domain, r_cut):
+def LJ_forces(coordinates_array, l_domain, r_cut):
     """
     Function to calculate inter-molecular forces for each configuration
 
-    :param molecules_coordinates: Array containing cartesian coordinates of each molecule [Angstroms]
+    :param coordinates_array: Array containing cartesian coordinates of each molecule [Angstroms]
     :param l_domain: Length of box domain sides [Angstroms]
     :param r_cut: Cut-off distance for inter-molecular interactions [Angstroms]
     :return: Forces [J/Angstrom] -> Equivalent of J/m which is N
     """
-    no_of_entities = molecules_coordinates.shape[0]
-    # print(no_of_entities)
+    no_of_entities = coordinates_array.shape[0]
 
     forces = np.zeros((no_of_entities, 3))
-    np.set_printoptions(formatter={'float': lambda x: format(x, '1.5E')})
 
-    for (i, coordinates_i) in enumerate(molecules_coordinates):
-        # list containing Δx, Δy, Δz for each pair
-        # CHECK THIS -> shouldn't be wrong if you offset this back to a left corner based domain
-        # Shape -> (N, 3)
-        d = (molecules_coordinates - molecules_coordinates[i] + l_domain / 2) % l_domain - l_domain / 2
-        # print(d)
-        # Add arbitrary large number so that r_ij_sq for the self-interaction goes beyond cut-off
-        d[i] += 20
-        # Radial distance between pairs
-        # Shape -> (N)
+    for (i, coordinates_i) in enumerate(coordinates_array):
+        # list containing Δx, Δy, Δz for each pair. Shape -> (N, 3)
+        d = (coordinates_array - coordinates_array[i] + l_domain / 2) % l_domain - l_domain / 2
+        # Radial distance between pairs. Shape -> (N)
         r_ij_sq = np.sum(d * d, axis=1)
+        # Removing self-interaction artefact
+        r_ij_sq[i] = r_cut
         # Removes overlaps and replaces with infinitesimally small distance to result in large forces that repel away
-        r_ij_sq = np.where(r_ij_sq == 0, 0.01, r_ij_sq)
+        r_ij_sq = np.where(r_ij_sq == 0, 0.001, r_ij_sq)
         # print(r_ij_sq)
 
-        # NOTE: WE SHALL NOT COMPUTE V_IJ BECAUSE IT WOULD BE COMPUTATIONALLY MORE EXPENSIVE TO PERFORM THE SQRT
-        # OPERATION AND MATHEMATICALLY, IT IS UNNECESSARY. WHEN YOU OBTAIN THE FORMULA OF DU_DR, YOU WILL SEE THAT THE
-        # DENOMINATORS IN THE BRACKETS ARE R^13 AND R^7, HOWEVER, THE UNIT VECTOR ACTUALLY CONTAINS ANOTHER R AS ITS
-        # DENOMINATOR, SO IF WE MULTIPLY THIS IN, THE DENOMINATORS BECOME R^14 AND R^8. THE FACT THAT THE POWER OF THE
-        # DENOMINATORS ARE IN MULTIPLES OF 2 ALLOWS US TO AVOID THE SQRT OPERATION.
+        # NOTE: WE SHALL NOT COMPUTE V_IJ (R_IJ IN THIS CODE) BECAUSE IT WOULD BE COMPUTATIONALLY MORE EXPENSIVE TO
+        # PERFORM THE SQRT OPERATION AND MATHEMATICALLY, IT IS UNNECESSARY. WHEN YOU OBTAIN THE FORMULA OF DU_DR,
+        # YOU WILL SEE THAT THE DENOMINATORS IN THE BRACKETS ARE R^13 AND R^7, HOWEVER, THE UNIT VECTOR ACTUALLY
+        # CONTAINS ANOTHER R AS ITS DENOMINATOR, SO IF WE MULTIPLY THIS IN, THE DENOMINATORS BECOME R^14 AND R^8. THE
+        # FACT THAT THE POWER OF THE DENOMINATORS ARE IN MULTIPLES OF 2 ALLOWS US TO AVOID THE SQRT OPERATION.
         # v_ij = np.where(r_ij_sq <= r_cut ** 2, d / np.sqrt(r_ij_sq), np.zeros(3)) # v_ij -> Unit vector of r_ij
 
-        # Filter out all r2 larger than rcut squared and get sigma^2/r^2 for all particles j>i. Necessary to set value
-        # as 0 if rejected to maintain size of array
-        # Shape -> (N, 3)
+        # Filter out all r2 larger than rcut squared and get sigma^2/r^2 for all pairs. Necessary to set value
+        # as 0 if rejected to maintain size of array. Shape -> (N, 3)
         sr2 = np.where(r_ij_sq <= r_cut ** 2, sigma_sq / r_ij_sq, 0)
         sr6 = sr2 ** 3
         sr12 = sr6 ** 2
 
         # Force magnitude
-        # Unit vectors are ji not ij so the signs are reversed which is why no -ve is in front
+        # NOTE: UNIT VECTORS ARE JI INSTEAD OF IJ, SO THE SIGNS ARE REVERSED, WHICH IS WHY NO NEGATIVE SIGN IS IN FRONT.
         dU_dr = ((24 * epslj) / r_ij_sq) * (2 * sr12 - sr6)
         # Vectorize dU_dr
         F = - d * dU_dr[:, np.newaxis]
@@ -249,118 +245,34 @@ def LJ_forces(molecules_coordinates, l_domain, r_cut):
     return forces
 
 
-# 3
-def velocityVerlet(timestep, molecules_coordinates, l_domain, forces, v_old, r_cut):
-    """
-    Velocity-Verlet Algorithm function
-
-    :param timestep: Time for each step [fs]
-    :param molecules_coordinates: Array containing cartesian coordinates of each molecule [Angstroms]
-    :param l_domain: Length of box domain sides [Angstroms]
-    :param forces: Forces [N/Angstrom]
-    :param v_old: Vector containing cartesian velocities  of each molecule [Angstroms]
-    :param r_cut: Cut-off distance for inter-molecular interactions [Angstroms]
-    :return: New configuration coordinates, new velocity vectors and force-field of new configuration
-    """
-    r_old = molecules_coordinates
-
-    v_half_new = np.zeros((len(molecules_coordinates), 3))
-    v_new = np.zeros((len(molecules_coordinates), 3))
-    r_new = np.zeros((len(molecules_coordinates), 3))
-
-    for i in range(0, len(molecules_coordinates)):
-        r_new[i] = r_old[i] + (v_old[i] * timestep) + (forces[i] / CH4_molecule_mass) * 1e-7 * (timestep ** 2)
-        # Bring back coordinates from ghost cells
-        r_new[i] = np.where(r_new[i] > + l_domain / 2, r_new[i] - l_domain, r_new[i])
-        r_new[i] = np.where(r_new[i] < - l_domain / 2, r_new[i] + l_domain, r_new[i])
-        v_half_new[i] = v_old[i] + (forces[i] / (2 * CH4_molecule_mass)) * 1e-7 * timestep
-
-    forces_new = LJ_forces(r_new, l_domain, r_cut)
-
-    for i in range(0, len(molecules_coordinates)):
-        v_new[i] = v_half_new[i] + (forces[i] / (2 * CH4_molecule_mass)) * 1e-7 * timestep
-        # v_new[i] = np.round(v_new[i], 6)
-
-    return r_new, v_new, forces_new
-
-
-# 6 
-def velocityVerletThermostat(timestep, T, Q, molecules_coordinates, l_domain, forces, v_old, r_cut):
-    '''
-
-    :param timestep: Time for each step [fs]
-    :param T: System temperature [K]
-    :param Q: Damping parameter [-]
-    :param molecules_coordinates: Array containing cartesian coordinates of each molecule [Angstroms]
-    :param l_domain: Length of box domain sides [Angstroms]
-    :param forces: Forces [N/Angstrom]
-    :param v_old: Vector containing cartesian velocities  of each molecule [Angstroms]
-    :param r_cut: Cut-off distance for inter-molecular interactions [Angstroms]
-    :return: New configuration coordinates, new velocity vectors and force-field of new configuration
-    '''
-    no_of_entities = molecules_coordinates.shape[0]
-
-    r_old = molecules_coordinates
-    zeta_old = np.zeros((len(molecules_coordinates), 3))
-
-    zeta_half_new = np.zeros((len(molecules_coordinates), 3))
-    v_half_new = np.zeros((len(molecules_coordinates), 3))
-
-    r_new = np.zeros((len(molecules_coordinates), 3))
-    zeta_new = np.zeros((len(molecules_coordinates), 3))
-    v_new = np.zeros((len(molecules_coordinates), 3))
-
-    U_kin = np.sum((0.5 * CH4_molecule_mass * (v_old ** 2))) / no_of_entities
-
-    for i in range(0, len(molecules_coordinates)):
-        # Calculate coordinates for new configuration r(t+delta t)
-        r_new[i] = r_old[i] + (v_old[i] * timestep) + ((timestep ** 2) / 2) * (
-                (forces[i] / CH4_molecule_mass) * 1e-7 - (zeta_old[i]) * v_old[i])
-        # Bring back coordinates from ghost cells
-        r_new[i] = np.where(r_new[i] >= + l_domain / 2, r_new[i] - l_domain, r_new[i])
-        r_new[i] = np.where(r_new[i] <= - l_domain / 2, r_new[i] + l_domain, r_new[i])
-
-        zeta_half_new[i] = zeta_old[i] + (timestep / (2 * Q)) * (U_kin - 1.5 * co.k * T)
-        v_half_new[i] = v_old[i] + (timestep / 2) * (
-                    (forces[i] / CH4_molecule_mass) * 1e-7 - zeta_half_new[i] * v_old[i])
-
-    # Calculate forces for new configuration r(t+delta t)
-    forces = LJ_forces(r_new, l_domain, r_cut)
-
-    for i in range(0, len(molecules_coordinates)):
-        zeta_new[i] = zeta_half_new[i] + (timestep / (2 * Q)) * (U_kin - 1.5 * co.k * T)
-        v_new[i] = (v_half_new[i] + ((timestep / 2) * (forces[i] / CH4_molecule_mass)) * 1e10) / (
-                1 + (timestep / 2) * zeta_new[i])
-
-    return r_new, v_new, forces
-
-
 # 4
-def kineticEnergy(T, no_of_entities):
+# Q3 below, kineticEnergy() was used for velocityVerletThermostat() so I placed the state variable functions before that
+def kineticEnergy(velocity_field):
     """
-    Function to calculate the kinetic energy of the system based on the temperature
+    Function to calculate the instantaneous kinetic energy of the system
 
-    :param T: System temperature [K]
-    :param no_of_entities: Number of molecules in the system [-]
+    :param velocity_field: Array containing [u, v, w] velocities of each molecule -> Array shape = (nParts, 3)
     :return: Kinetic Energy [J]
     """
-    U_kin = 0.5 * co.k * T * ndim * no_of_entities
+    v2 = np.sum(velocity_field ** 2, axis=1)
+    U_kin = 0.5 * CH4_molar_mass * np.sum(v2) * 1e4  # [kJ/mol]
 
+    # print(U_kin)
     return U_kin
 
 
 # 4
-def potentialEnergy(molecules_coordinates, l_domain, r_cut=14):
+def potentialEnergy(coordinates_array, l_domain, r_cut=14):
     """
-    Function to calculate the potential energy of the system using the truncated Lennard-Jones potential
+    Function to calculate the instantaneous potential energy of the system using the truncated Lennard-Jones potential
 
-    :param molecules_coordinates: Array containing cartesian coordinates of each molecule [Angstroms]
+    :param coordinates_array: Array containing cartesian coordinates of each molecule [Angstroms]
     :param l_domain: Length of box domain sides [Angstroms]
     :param r_cut: Cut-off distance for inter-molecular interactions [Angstroms]
     :return: Total Lennard-Jones potential of the system [J]
     """
-    # molecules_coordinates = np.array(molecules_coordinates)
-    no_of_entities = molecules_coordinates.shape[0]
+    # coordinates_array = np.array(coordinates_array)
+    no_of_entities = coordinates_array.shape[0]
     # Simulation box size, note, we shall work with angstroms [Angstroms]
     domain_volume = l_domain ** 3
     # Molecule density
@@ -369,13 +281,12 @@ def potentialEnergy(molecules_coordinates, l_domain, r_cut=14):
     # Initialized the Lennard-Jones parameters for the calculation of potential energy
     U_lj = 0
 
-    sr3 = sigma_cu / (r_cut ** 3)
-
-    for (i, coordinates_i) in enumerate(molecules_coordinates):
+    for (i, coordinates_i) in enumerate(coordinates_array):
         # list containing Δx, Δy, Δz for each pair
-        d = (molecules_coordinates[i + 1:] - coordinates_i + l_domain / 2) % l_domain - l_domain / 2
+        d = (coordinates_array[i + 1:] - coordinates_i + l_domain / 2) % l_domain - l_domain / 2
         r_ij_sq = np.sum(d * d, axis=1)
         # print(r_ij_sq)
+        r_ij_sq = np.where(r_ij_sq == 0, 0.001, r_ij_sq)
 
         # filter out all r2 larger than rcut squared and get sigma^2/r^2 for all particles j>i
         sr2 = sigma_sq / r_ij_sq[r_ij_sq <= r_cut ** 2]
@@ -384,61 +295,58 @@ def potentialEnergy(molecules_coordinates, l_domain, r_cut=14):
 
         U_lj += np.sum(sr12 - sr6)
 
-    U_lj = 4 * epslj * U_lj  # [J]
-    # print(U_lj)
-    U_ljtail = no_of_entities * (8 / 3) * co.pi * epslj * molecule_density * sigma_cu * (
-            (1 / 3) * (sr3 * sr3 * sr3) - sr3)  # [J]
-    # print(U_ljtail)
-    U_pot = U_lj + U_ljtail  # [J]
+    U_lj = 4 * ((epslj / co.k) * co.R * 1e-3) * U_lj
+    U_pot = U_lj  # [kJ/mol]
     # print(U_pot)
 
     return U_pot
 
 
 # 4
-def temperature(particle_velocities):
+def temperature(velocity_field):
     """
     Function to calculate system temperature
 
-    :param particle_velocities: Vector containing cartesian velocities  of each molecule [Angstroms/fs]
+    :param velocity_field: Vector containing cartesian velocities  of each molecule [Angstroms/fs]
     :return: System temperature [K]
     """
-    v2 = particle_velocities ** 2
-    average_Kinetic = 0.5 * CH4_molecule_mass * np.average(v2) * 1e-10
+    v2 = np.sum(velocity_field ** 2, axis=1)
+    KE = 0.5 * CH4_molar_mass * v2 * 1e4
+    KE_average = np.average(KE)
 
-    T = average_Kinetic / (ndim * co.k)  # [K]
+    # T = average_kinetic / (ndim * co.k)
+    T = KE_average / (ndim / 2 * co.R * 1e-3)  # [K]
     # print(T)
 
     return T
 
 
 # 4
-def pressure(T, molecules_coordinates, l_domain, r_cut=14):
+def pressure(T, coordinates_array, l_domain, r_cut=14):
     """
     Function to calculate total system pressure
 
     :param T: System temperature [K]
-    :param molecules_coordinates: Array containing cartesian coordinates of each molecule [Angstroms]
+    :param coordinates_array: Array containing cartesian coordinates of each molecule [Angstroms]
     :param l_domain: Length of box domain sides [Angstroms]
     :param r_cut: Cut-off distance for inter-molecular interactions [Angstroms]
-    :return: System pressure [Pa]
+    :return: Total system pressure [Pa]
     """
-    # molecules_coordinates = np.array(molecules_coordinates)
-    no_of_entities = molecules_coordinates.shape[0]
-    # Simulation box size, note, we shall work with angstroms [Angstroms]
+    no_of_entities = coordinates_array.shape[0]
+    # Simulation box size [Angstroms^3]
     domain_volume = l_domain ** 3
     # Molecule density
     molecule_density = no_of_entities / domain_volume  # [1/Angstroms^3]
-    # Cutoff radius to prevent duplicate interactions [Angstroms] if condition implemented for Q3.1 later
 
     # Initialized the Lennard-Jones parameters for the calculation of pressure
     dU_dr = 0
 
-    for (i, coordinates_i) in enumerate(molecules_coordinates):
+    for (i, coordinates_i) in enumerate(coordinates_array):
         # list containing Δx, Δy, Δz for each pair
-        d = (molecules_coordinates[i + 1:] - coordinates_i + l_domain / 2) % l_domain - l_domain / 2
+        d = (coordinates_array[i + 1:] - coordinates_i + l_domain / 2) % l_domain - l_domain / 2
         r_ij_sq = np.sum(d * d, axis=1)
         # print(r_ij_sq)
+        r_ij_sq = np.where(r_ij_sq == 0, 0.001, r_ij_sq)
 
         # Filter out all r2 larger than rcut squared and get sigma^2/r^2 for all particles j>i
         sr2 = sigma_sq / r_ij_sq[r_ij_sq <= r_cut ** 2]
@@ -448,10 +356,125 @@ def pressure(T, molecules_coordinates, l_domain, r_cut=14):
         dU_dr += np.sum(sr6 - 2 * sr12)
 
     dU_dr = 24 * epslj * dU_dr
-    P_tot = (molecule_density * k_B * T - (1 / (3 * domain_volume)) * dU_dr) * 1e30  # [Pa]
+    P_tot = (molecule_density * k_B * T - (1 / (3 * domain_volume)) * dU_dr) * 1e30 / co.atm  # [atm]
     # print(P_tot)
 
     return P_tot
+
+
+# 3
+def velocityVerlet(timestep, coordinates_array, l_domain, forces, v_old, r_cut):
+    """
+    Function that executes one cycle of the MD-NVE cycle using the Velocity-Verlet Algorithm function
+
+    :param timestep: Time for each step [fs]
+    :param coordinates_array: Array containing cartesian coordinates of each molecule [Angstroms]
+    :param l_domain: Length of box domain sides [Angstroms]
+    :param forces: Forces [N/Angstrom]
+    :param v_old: Vector containing cartesian velocities  of each molecule [Angstroms]
+    :param r_cut: Cut-off distance for inter-molecular interactions [Angstroms]
+    :return: New configuration coordinates, new velocity vectors and force-field of new configuration
+    """
+    r_old = coordinates_array
+
+    r_new = r_old + (v_old * timestep) + (forces / CH4_molecule_mass) * 1e-7 * (timestep ** 2)
+    # Bring back coordinates from ghost cells
+    r_new = np.where(r_new > + l_domain / 2, r_new - l_domain, r_new)
+    r_new = np.where(r_new < - l_domain / 2, r_new + l_domain, r_new)
+    v_half_new = v_old + (forces / (2 * CH4_molecule_mass)) * 1e-7 * timestep
+
+    forces_new = LJ_forces(r_new, l_domain, r_cut)
+
+    v_new = v_half_new + (forces / (2 * CH4_molecule_mass)) * 1e-7 * timestep
+
+    """v_half_new = np.zeros((len(coordinates_array), 3))
+    v_new = np.zeros((len(coordinates_array), 3))
+    r_new = np.zeros((len(coordinates_array), 3))
+
+    for i in range(0, len(coordinates_array)):
+        r_new[i] = r_old[i] + (v_old[i] * timestep) + (forces[i] / CH4_molecule_mass) * 1e-7 * (timestep ** 2)
+        # Bring back coordinates from ghost cells
+        r_new[i] = np.where(r_new[i] > + l_domain / 2, r_new[i] - l_domain, r_new[i])
+        r_new[i] = np.where(r_new[i] < - l_domain / 2, r_new[i] + l_domain, r_new[i])
+        v_half_new[i] = v_old[i] + (forces[i] / (2 * CH4_molecule_mass)) * 1e-7 * timestep
+
+    forces_new = LJ_forces(r_new, l_domain, r_cut)
+
+    for i in range(0, len(coordinates_array)):
+        v_new[i] = v_half_new[i] + (forces[i] / (2 * CH4_molecule_mass)) * 1e-7 * timestep"""
+
+    return r_new, v_new, forces_new
+
+
+# 6
+def velocityVerletThermostat(timestep, T, Q, coordinates_array, l_domain, forces, v_old, zeta_old, r_cut):
+    """
+    Function that executes one cycle of the MD-NVT cycle using the Nose-Hoover thermostat
+
+    :param timestep: Time for each step [fs]
+    :param T: System temperature [K]
+    :param Q: Damping parameter [-]
+    :param coordinates_array: Array containing cartesian coordinates of each molecule [Angstroms]
+    :param l_domain: Length of box domain sides [Angstroms]
+    :param forces: Forces [N/Angstrom]
+    :param v_old: Vector containing cartesian velocities  of each molecule [Angstroms]
+    :param zeta_old: 'Friction' integral for the calibration of temperature
+    :param r_cut: Cut-off distance for inter-molecular interactions [Angstroms]
+    :return: New configuration coordinates, new velocity vectors, force-field of new configuration and 'Friction'
+    integral array
+    """
+    N = coordinates_array.shape[0]
+    # print(N)
+
+    r_old = coordinates_array
+
+    U_kin = kineticEnergy(v_old)
+
+    r_new = r_old + (v_old * timestep) + ((forces / CH4_molecule_mass) * 1e-7 - (zeta_old * v_old)) * (
+                (timestep ** 2) / 2)
+    r_new = np.where(r_new > + l_domain / 2, r_new - l_domain, r_new)
+    r_new = np.where(r_new < - l_domain / 2, r_new + l_domain, r_new)
+
+    # zeta_half_new = zeta_old + ((U_kin / co.N_A / N) * 1e3 - ((3 / 2) * co.k * T)) * (timestep / (2 * Q))
+    zeta_half_new = zeta_old + ((U_kin / N) - ((3 / 2) * co.R * T) * 1e-3) * (timestep / (2 * Q))
+    v_half_new = v_old + ((forces / CH4_molecule_mass) * 1e-7 - (zeta_half_new * v_old)) * (timestep / 2)
+
+    forces = LJ_forces(r_new, l_domain, r_cut)
+
+    # zeta_new = zeta_half_new + (timestep / (2 * Q)) * ((U_kin / co.N_A / N) * 1e3 - ((3 / 2) * co.k * T))
+    zeta_new = zeta_half_new + (timestep / (2 * Q)) * ((U_kin / N) - ((3 / 2) * co.R * T) * 1e-3)
+    v_new = (v_half_new + ((timestep / 2) * (forces / CH4_molecule_mass) * 1e-7)) / (1 + (timestep / 2) * zeta_new)
+
+    T_new = temperature(v_new)
+    """
+    zeta_half_new = np.zeros((len(coordinates_array), 3))
+    v_half_new = np.zeros((len(coordinates_array), 3))
+
+    r_new = np.zeros((len(coordinates_array), 3))
+    zeta_new = np.zeros((len(coordinates_array), 3))
+    v_new = np.zeros((len(coordinates_array), 3))
+    
+    for i in range(0, len(coordinates_array)):
+        # Calculate coordinates for new configuration r(t + Δt)
+        r_new[i] = r_old[i] + (v_old[i] * timestep) + (
+                (forces[i] / CH4_molecule_mass) * 1e-7 - (zeta_old[i] * v_old[i])) * ((timestep ** 2) / 2)
+        # Bring back coordinates from ghost cells
+        r_new[i] = np.where(r_new[i] > + l_domain / 2, r_new[i] - l_domain, r_new[i])
+        r_new[i] = np.where(r_new[i] < - l_domain / 2, r_new[i] + l_domain, r_new[i])
+
+        zeta_half_new[i] = zeta_old[i] + ((U_kin / co.N_A / N) * 1e3 - ((3/2) * co.k * T)) * (timestep / (2 * Q))
+        v_half_new[i] = v_old[i] + ((forces[i] / CH4_molecule_mass) * 1e-7 - (zeta_half_new[i] * v_old[i])) * (
+                timestep / 2)
+
+    # Calculate forces for new configuration r(t + Δt)
+    forces = LJ_forces(r_new, l_domain, r_cut)
+
+    for i in range(0, len(coordinates_array)):
+        zeta_new[i] = zeta_half_new[i] + (timestep / (2 * Q)) * ((U_kin / co.N_A / N) * 1e3 - ((3/2) * co.k * T))
+        v_new[i] = (v_half_new[i] + ((timestep / 2) * (forces[i] / CH4_molecule_mass) * 1e-7)) / (
+                1 + (timestep / 2) * zeta_new[i])"""
+
+    return r_new, v_new, forces, zeta_new, T_new
 
 
 def write_frame(coords, L, vels, forces, trajectory_name, step):
@@ -564,69 +587,264 @@ def read_lammps_trj(lammps_trj_file):
     return xyz, vel, forces
 
 
+def postProcStateVar(file='log.lammps'):
+    log = lammps_logfile.File(file)
+
+    time = log.get("Step")
+    temperature = log.get("Temp")
+    # Units conversion needed
+    pressure = log.get("Press")
+    U_kin = log.get("KinEng")
+    U_kin *= 4.184
+    U_Pot = log.get("PotEng")
+    U_Pot *= 4.184
+
+    return temperature, pressure, U_kin, U_Pot
+
+
 # 5
-def MD_CYCLE(simulation_time, timestep, L, coordinates, force, velocity, r_cut):
+def MD_NVE(simulation_time, timestep, L, coordinates, force, velocity, r_cut):
     """
-    Function to run an MD loop for the specified duration and timestep.
+    Function to run an MD-NVE loop for the specified duration and timestep.
 
     :param simulation_time: Total simulation time [fs]
     :param timestep: Time for each step [fs]
     :param L: Length of box domain sides [Angstroms]
-    :param coordinates:
-    :param force:
-    :param velocity:
+    :param coordinates: Array containing the coordinates of molecules at a certain time [Angstrom]
+    :param force: Array containing the force field of molecules at a certain time [J/Angstrom]
+    :param velocity: Array containing the velocities of molecules at a certain time [Angstrom/fs]
     :param r_cut: Cut-off distance for inter-molecular interactions [Angstroms]
-    :return:
+    :return: State variables kinetic energy, potential energy, temperature and pressure
     """
-    steps = simulation_time / timestep
+    start = time.time()
+
+    trajectory_filename = 'trajectory_1.lammps'
+
+    steps = int(simulation_time / timestep)
+    sample_frequency = 100
+    sample_interval = int(steps / sample_frequency)
+
+    r_old = coordinates
+    force_old = force
+    v_old = velocity
+
+    U_kin = np.zeros(sample_frequency + 1)
+    U_lj = np.zeros(sample_frequency + 1)
+    T = np.zeros(sample_frequency + 1)
+    p = np.zeros(sample_frequency + 1)
+    time_array = np.zeros(sample_frequency + 1)
+
+    U_kin[0] = kineticEnergy(v_old)
+    U_lj[0] = potentialEnergy(r_old, L, r_cut)
+    T[0] = temperature(v_old)
+    p[0] = pressure(T[0], r_old, L, r_cut)
+
+    counter = 1
+
+    for i in range(1, simulation_time + 1):
+        r_new, v_new, force_new = velocityVerlet(timestep, r_old, L, force_old, v_old, r_cut)
+        # print(i)
+
+        if i % sample_interval == 0:
+            print(i, 'Sampling')
+            U_kin[counter] = kineticEnergy(v_new)
+            U_lj[counter] = potentialEnergy(r_new, L, r_cut)
+            T[counter] = temperature(v_new)
+            p[counter] = pressure(T[counter], r_new, L, r_cut)
+            time_array[counter] = i
+            counter += 1
+
+            # print(T)
+            write_frame(r_new, L, v_new, force_new, trajectory_filename, (i + 1) * timestep)
+
+        r_old = r_new
+        v_old = v_new
+        force_old = force_new
+
+    end = time.time()
+    print("The time of execution of above program is :", (end - start) / 60, "mins")
+    lammps_temperature, lammps_pressure, lammps_kin, lammps_pot = postProcStateVar(
+        './DECLAN_VERIFY1/GIVEN_DATA/log.lammps')
+
+    plt.plot(time_array, U_kin, '-o', markersize=0.5)
+    plt.plot(time_array, lammps_kin, '-o', markersize=0.5)
+    plt.ylabel("Kinetic Energy [kJ/mol]")
+    plt.xlabel("Time [fs]")
+    plt.savefig('./DECLAN_VERIFY1/Kin_v_t.png')
+    plt.show()
+
+    plt.plot(time_array, U_lj, '-o', markersize=0.5)
+    plt.plot(time_array, lammps_pot, '-o', markersize=0.5)
+    plt.ylabel("Potential Energy [kJ/mol]")
+    plt.xlabel("Time [fs]")
+    plt.savefig('./DECLAN_VERIFY1/LJ_v_t.png')
+    plt.show()
+
+    plt.plot(time_array, T, '-o', markersize=0.5)
+    plt.plot(time_array, lammps_temperature, '-o', markersize=0.5)
+    plt.ylabel("Temperature [K]")
+    plt.xlabel("Time [fs]")
+    plt.savefig('./DECLAN_VERIFY1/T_v_t.png')
+    plt.show()
+
+    plt.plot(time_array, p, '-o', markersize=0.5)
+    plt.plot(time_array, lammps_pressure, '-o', markersize=0.5)
+    plt.ylabel("Pressure [Pa]")
+    plt.xlabel("Time [fs]")
+    plt.savefig('./DECLAN_VERIFY1/p_v_t.png')
+    plt.show()
+    return U_kin, U_lj, T
+
+
+# 6
+def MD_NVT(simulation_time, timestep, T, Q, L, coordinates, force, velocity, zeta, r_cut):
+    """
+    Function to run an MD-NVT loop for the specified duration and timestep.
+
+    :param simulation_time: Total simulation time [fs]
+    :param timestep: Time for each step [fs]
+    :param T: Desired system temperature [K]
+    :param Q: Damping parameter for thermostat [-]
+    :param L: Length of box domain sides [Angstroms]
+    :param coordinates: Array containing the coordinates of molecules at a certain time [Angstrom]
+    :param force: Array containing the force field of molecules at a certain time [J/Angstrom]
+    :param velocity: Array containing the velocities of molecules at a certain time [Angstrom/fs]
+    :param zeta: Array containing the 'friction' variable of molecules at a certain time
+    :param r_cut: Cut-off distance for inter-molecular interactions [Angstroms]
+    :return: State variables kinetic energy, potential energy, temperature and pressure
+    """
+    start = time.time()
+
+    trajectory_filename = 'trajectory_2.lammps'
+
+    steps = int(simulation_time / timestep)
     sample_frequency = 100
     sample_interval = steps / sample_frequency
 
     r_old = coordinates
     force_old = force
     v_old = velocity
+    zeta_old = zeta
+    T_old = T
 
-    for i in range(0, simulation_time):
-        r_new, v_new, force_new = velocityVerlet(timestep, r_old, L, force_old, v_old, r_cut)
+    U_kin = np.zeros(sample_frequency + 1)
+    U_lj = np.zeros(sample_frequency + 1)
+    T_array = np.zeros(sample_frequency + 1)
+    p = np.zeros(sample_frequency + 1)
+    time_array = np.zeros(sample_frequency + 1)
+
+    U_kin[0] = kineticEnergy(v_old)
+    U_lj[0] = potentialEnergy(r_old, L, r_cut)
+    T_array[0] = T
+    p[0] = pressure(T, r_old, L, r_cut)
+
+    counter = 1
+
+    for i in range(1, simulation_time + 1):
+        r_new, v_new, force_new, zeta_new, T_new = velocityVerletThermostat(timestep, T_old, Q, r_old, L, force_old,
+                                                                            v_old, zeta_old, r_cut)
         print(i)
 
-        if (i + 1) % sample_interval == 0:
-            write_frame(r_new, L, v_new, force_new, 'Declan_trj.lammps', (i + 1) * timestep)
-            # NOT WRITING FORCE FOR SOME REASON BUT IF WE PRINT FORCE, THERE ARE NUMBERS
+        if i % sample_interval == 0:
+            U_kin[counter] = kineticEnergy(v_new)
+            U_lj[counter] = potentialEnergy(r_new, L, r_cut)
+            T_array[counter] = T_new
+            p[counter] = pressure(T, r_new, L, r_cut)
+            time_array[counter] = i
+            counter += 1
+
+            write_frame(r_new, L, v_new, force_new, trajectory_filename, (i + 1) * timestep)
 
         r_old = r_new
         v_old = v_new
         force_old = force_new
+        zeta_old = zeta_new
+        T_old = T_new
 
-"""coordinates_1, l_domain_1 = initGrid(30, 0.5 * 358.4)
+    end = time.time()
+    print("The time of execution of above program is :", (end - start) / 60, "mins")
+    lammps_temperature, lammps_pressure, lammps_kin, lammps_pot = postProcStateVar(
+        './DECLAN_VERIFY2/GIVEN_DATA/log.lammps')
+
+    plt.plot(time_array, U_kin, '-o', markersize=0.5)
+    plt.plot(time_array, lammps_kin, '-o', markersize=0.5)
+    plt.ylabel("Kinetic Energy [kJ/mol]")
+    plt.xlabel("Time [fs]")
+    plt.savefig('./DECLAN_VERIFY2/Kin_v_t.png')
+    plt.show()
+
+    plt.plot(time_array, U_lj, '-o', markersize=0.5)
+    plt.plot(time_array, lammps_pot, '-o', markersize=0.5)
+    plt.ylabel("Potential Energy [kJ/mol]")
+    plt.xlabel("Time [fs]")
+    plt.savefig('./DECLAN_VERIFY2/LJ_v_t.png')
+    plt.show()
+
+    plt.plot(time_array, T_array, '-o', markersize=0.5)
+    plt.plot(time_array, lammps_temperature, '-o', markersize=0.5)
+    plt.ylabel("Temperature [K]")
+    plt.xlabel("Time [fs]")
+    plt.savefig('./DECLAN_VERIFY2/T_v_t.png')
+    plt.show()
+
+    plt.plot(time_array, p, '-o', markersize=0.5)
+    plt.plot(time_array, lammps_pressure, '-o', markersize=0.5)
+    plt.ylabel("Pressure [Pa]")
+    plt.xlabel("Time [fs]")
+    plt.savefig('./DECLAN_VERIFY2/p_v_t.png')
+    plt.show()
+
+    return U_kin, U_lj, T
+
+
+"""
+# 1.1 Uncomment this to generate rdf plots on a single figure
+coordinates_1, l_domain_1 = initGrid(30, 0.5 * 358.4)
 coordinates_2, l_domain_2 = initGrid(30,358.4)
-coordinates_3, l_domain_3 = initGrid(30,2 * 358.4)
+coordinates_3, l_domain_3 = initGrid(30, 2 * 358.4)
 
 r, g_r1 = rdf(coordinates_1, np.array([l_domain_1,l_domain_1,l_domain_1]))
 g_r2 = rdf(coordinates_2, np.array([l_domain_2,l_domain_2,l_domain_2]))[1]
 g_r3 = rdf(coordinates_3, np.array([l_domain_3,l_domain_3,l_domain_3]))[1]
-#plt.scatter(r, g_r, 3)
-plt.plot(r, g_r1, '-o', markersize = 3)
-plt.plot(r, g_r2, '-o', markersize = 3)
-# plt.plot(r, g_r3, '-o', markersize = 3)
+
+plt.plot(r, g_r1, '-o', markersize = 0.5)
+plt.plot(r, g_r2, '-o', markersize = 0.5)
+plt.plot(r, g_r3, '-o', markersize = 0.5)
 # plt.title("")
 plt.ylabel("g(r)")
 plt.xlabel("r [A]")
 plt.savefig('rdf.png')
-plt.show()"""
+plt.show()
+"""
 
+"""# 4
 # Initializing domain
-l_domain = 30
-coord_array, no_of_molecules = initGrid(l_domain, 358.4)
+coord_array, no_of_molecules = initGrid(30, 358.4)
 # Initializing velocity
 v_array = initVel(150, no_of_molecules)
 # Initializing force
-force_array = LJ_forces(coord_array, l_domain, 14)
+force_array = LJ_forces(coord_array, 30, 14)
 
-MD_CYCLE(3000, 1, l_domain, coord_array, force_array, v_array, 14)
-xyz, vel, F = read_lammps_trj('Declan_trj.lammps')
+MD_NVE(3000, 1, 30, coord_array, force_array, v_array, 14)
+xyz, vel, F = read_lammps_trj('trajectory_1.lammps')
 # xyz, vel, forces = read_lammps_trj('trj.lammps')
-print(xyz)
-print(vel)
-print(F)
+# print(xyz)
+# print(vel)
+# print(F)"""
 
+# 5
+# Initializing domain
+coord_array, no_of_molecules = initGrid(30, 358.4)
+# Initializing velocity
+v_array = initVel(150, no_of_molecules)
+# Initializing force
+force_array = LJ_forces(coord_array, 30, 14)
+# Initializing 'friction' variable zeta
+zeta_array = np.zeros((no_of_molecules, 3))
+
+MD_NVT(3000, 1, 150, 1e-8, 30, coord_array, force_array, v_array, zeta_array, 14)
+xyz, vel, F = read_lammps_trj('trajectory_2.lammps')
+# xyz, vel, forces = read_lammps_trj('trj.lammps')
+# print(xyz)
+# print(vel)
+# print(F)
