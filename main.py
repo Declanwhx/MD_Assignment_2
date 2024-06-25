@@ -795,7 +795,7 @@ force_array = LJ_forces(coord_array, 30, 14)
 # Initializing 'friction' variable zeta
 zeta_array = np.zeros((no_of_molecules, 3))
 
-MD_NVT(3000, 1, 150, 1e-8, 30, coord_array, force_array, v_array, zeta_array, 14)
+MD_NVT(3000, 1, 150, 9.5e-18, 30, coord_array, force_array, v_array, zeta_array, 14)
 xyz, vel, F = read_lammps_trj('trajectory_2.lammps')
 # xyz, vel, forces = read_lammps_trj('trj.lammps')
 # print(xyz)
