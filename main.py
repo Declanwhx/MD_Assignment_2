@@ -410,13 +410,13 @@ def velocityVerletThermostat(timestep, T, Q, coordinates_array, l_domain, forces
     r_new = np.where(r_new < - l_domain / 2, r_new + l_domain, r_new)
 
     # U_kin here is in kJ/mol so 3/2kbT has been multiplied by N_A and 1E-3 to maintain unit consistency
-    zeta_half_new = zeta_old + ((U_kin / N) - ((3 / 2) * co.R * T) * 1e-3) * (timestep / (2 * Q))
+    zeta_half_new = zeta_old + ((U_kin / co.N_A / N) * 1e3 - ((3 / 2) * co.k * T)) * (timestep / (2 * Q))
     v_half_new = v_old + ((forces / CH4_molecule_mass) * 1e-7 - (zeta_half_new * v_old)) * (timestep / 2)
 
     forces = LJ_forces(r_new, l_domain, r_cut)
     U_kin = kineticEnergy(v_half_new)
 
-    zeta_new = zeta_half_new + (timestep / (2 * Q)) * ((U_kin / N) - ((3 / 2) * co.R * T) * 1e-3)
+    zeta_new = zeta_half_new + (timestep / (2 * Q)) * ((U_kin / co.N_A / N) * 1e3 - ((3 / 2) * co.k * T))
     v_new = (v_half_new + ((timestep / 2) * (forces / CH4_molecule_mass) * 1e-7)) / (1 + (timestep / 2) * zeta_new)
 
     T_new = temperature(v_new)
